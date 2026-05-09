@@ -1,7 +1,14 @@
 import { createMiroMcpServer, listMiroMcpToolNames } from "@/lib/agent-runtime/miro-mcp";
 import type { MiroBoardResult, Shotlist } from "@/lib/workflow/types";
 
-export async function routeShotlistToMiro(shotlist: Shotlist): Promise<MiroBoardResult> {
+type RouteShotlistToMiroOptions = {
+  boardUrl?: string;
+};
+
+export async function routeShotlistToMiro(
+  shotlist: Shotlist,
+  options: RouteShotlistToMiroOptions = {}
+): Promise<MiroBoardResult> {
   const server = createMiroMcpServer(getMiroMcpConfigWithFallback(), {
     redirectUrl: getMiroOAuthRedirectUrl()
   });
@@ -21,6 +28,10 @@ export async function routeShotlistToMiro(shotlist: Shotlist): Promise<MiroBoard
 
   try {
     const tools = await listMiroMcpToolNames(server);
+
+    if (!tools.includes("board_create") || !tools.includes("layout_create")) {
+      return await routeShotlistWithCurrentMiroTools(server, shotlist, tools, normalizeMiroBoardUrl(options.boardUrl));
+    }
 
     const boardResult = await server.callTool("board_create", {
       description: `Product video shotlist for ${shotlist.productName}. ${shotlist.concept}`,
@@ -57,6 +68,78 @@ export async function routeShotlistToMiro(shotlist: Shotlist): Promise<MiroBoard
   } finally {
     await server.close();
   }
+}
+
+async function routeShotlistWithCurrentMiroTools(
+  server: NonNullable<ReturnType<typeof createMiroMcpServer>>,
+  shotlist: Shotlist,
+  tools: string[],
+  boardUrl: string | null
+): Promise<MiroBoardResult> {
+  if (!boardUrl) {
+    throw new Error(
+      "This Miro MCP session does not expose board_create, and its create tools reject new-board requests. Paste an existing Miro board URL or connect to an MCP endpoint that advertises board_create."
+    );
+  }
+
+  if (tools.includes("diagram_create")) {
+    const placement = await getNextMiroPlacement(server, tools, boardUrl);
+
+    if (tools.includes("diagram_get_dsl")) {
+      await server.callTool("diagram_get_dsl", {
+        diagram_type: "flowchart",
+        miro_url: boardUrl
+      });
+    }
+
+    const diagramResult = await server.callTool("diagram_create", {
+      diagram_dsl: createShotlistFlowchartDsl(shotlist),
+      diagram_type: "flowchart",
+      miro_url: boardUrl,
+      title: `${truncate(shotlist.productName, 60)} Shot Flow`,
+      x: placement.x,
+      y: placement.y
+    });
+    const diagramText = getMcpText(diagramResult);
+    assertMiroToolSuccess(diagramResult, "diagram_create");
+    const resultBoardUrl = findMiroBoardUrl(diagramText) ?? boardUrl;
+
+    return {
+      boardId: extractBoardId(resultBoardUrl) ?? `mcp-${shotlist.id}`,
+      boardUrl: resultBoardUrl,
+      provider: "miro-mcp",
+      status: "created",
+      itemCount: shotlist.shots.length,
+      itemIds: Array.from(new Set(findMiroItemUrls(diagramText))),
+      tools,
+      message: `Created a linked Miro shot flow for ${shotlist.shots.length} shots.`
+    };
+  }
+
+  if (!tools.includes("doc_create")) {
+    throw new Error(`Miro MCP does not expose a supported write tool. Available tools: ${tools.join(", ")}`);
+  }
+
+  const docResult = await server.callTool("doc_create", {
+    content: createShotlistMarkdown(shotlist),
+    miro_url: boardUrl,
+    x: 0,
+    y: 0
+  });
+  const docText = getMcpText(docResult);
+  assertMiroToolSuccess(docResult, "doc_create");
+  const resultBoardUrl = findMiroBoardUrl(docText) ?? boardUrl;
+
+  return {
+    boardId: extractBoardId(resultBoardUrl) ?? `mcp-${shotlist.id}`,
+    boardUrl: resultBoardUrl,
+    provider: "miro-mcp",
+    status: "created",
+    itemCount: 1,
+    itemIds: Array.from(new Set(findMiroItemUrls(docText))),
+    tools,
+    message: `Created a Miro shotlist document for ${shotlist.shots.length} shots because this MCP session does not expose sticky note or diagram creation.`
+  };
 }
 
 export async function inspectMiroMcp(): Promise<MiroBoardResult> {
@@ -165,15 +248,116 @@ function createShotlistLayoutDsl(shotlist: Shotlist) {
   return lines.join("\n");
 }
 
+function createShotlistMarkdown(shotlist: Shotlist) {
+  const lines = [
+    `# ${shotlist.productName} Shotlist`,
+    "",
+    shotlist.concept,
+    "",
+    ...shotlist.shots.flatMap((shot, index) => [
+      `## ${index + 1}. ${shot.title} (${shot.durationSeconds}s)`,
+      "",
+      shot.prompt,
+      "",
+      `**Framing:** ${shot.framing}`,
+      "",
+      `**Motion:** ${shot.motion}`,
+      "",
+      shot.assets.length ? `**Assets:** ${shot.assets.join(", ")}` : "",
+      ""
+    ])
+  ];
+
+  return lines.filter((line, index, allLines) => line || allLines[index - 1]).join("\n");
+}
+
+function createShotlistFlowchartDsl(shotlist: Shotlist) {
+  const nodes = shotlist.shots.map((shot, index) => {
+    const id = `n${index + 1}`;
+    const label = sanitizeMiroDiagramLabel([
+      `${index + 1}. ${shot.title}`,
+      `${shot.durationSeconds}s - ${shot.framing}`,
+      shot.motion,
+      truncate(shot.prompt, 160)
+    ].join(" | "));
+
+    return `${id} ${label} flowchart-process`;
+  });
+  const links = shotlist.shots.slice(0, -1).map((_, index) => `c n${index + 1} next n${index + 2}`);
+
+  return ["graphdir LR", ...nodes, ...links].join("\n");
+}
+
 function getMcpText(result: { type: string; text?: string }[] | unknown) {
   if (!Array.isArray(result)) {
     return JSON.stringify(result);
   }
 
-  return result
+  const text = result
     .map((item) => (item && typeof item === "object" && "text" in item ? String(item.text ?? "") : ""))
     .filter(Boolean)
     .join("\n");
+
+  return text || JSON.stringify(result);
+}
+
+async function getNextMiroPlacement(
+  server: NonNullable<ReturnType<typeof createMiroMcpServer>>,
+  tools: string[],
+  boardUrl: string
+) {
+  if (!tools.includes("board_list_items")) {
+    return { x: 0, y: Date.now() % 10_000 };
+  }
+
+  try {
+    const result = await server.callTool("board_list_items", {
+      item_type: null,
+      limit: 100,
+      miro_url: boardUrl
+    });
+    const parsed = parseMcpJsonObject(result);
+    const itemCount = typeof parsed?.total === "number" ? parsed.total : 0;
+
+    return {
+      x: 0,
+      y: itemCount * 180 + (Date.now() % 100)
+    };
+  } catch {
+    return { x: 0, y: Date.now() % 10_000 };
+  }
+}
+
+function assertMiroToolSuccess(result: unknown, toolName: string) {
+  const parsed = parseMcpJsonObject(result);
+  if (parsed && parsed.success === false) {
+    throw new Error(`${toolName} failed: ${String(parsed.message ?? getMcpText(result)).slice(0, 500)}`);
+  }
+
+  const text = getMcpText(result);
+  if (/^(invalid|error|failed|board creation is not available|access denied)/i.test(text.trim())) {
+    throw new Error(`${toolName} failed: ${truncate(text, 500)}`);
+  }
+}
+
+function parseMcpJsonObject(result: unknown) {
+  if (Array.isArray(result) && result.length === 1) {
+    const item = result[0];
+    if (item && typeof item === "object" && "text" in item) {
+      try {
+        const parsed = JSON.parse(String(item.text ?? "")) as unknown;
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    return result as Record<string, unknown>;
+  }
+
+  return null;
 }
 
 function findMiroBoardUrl(value: string) {
@@ -188,12 +372,39 @@ function extractBoardId(boardUrl: string) {
   return boardUrl.match(/\/board\/([^/?#]+)/)?.[1] ?? null;
 }
 
+function normalizeMiroBoardUrl(value: string | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    if (!url.hostname.endsWith("miro.com") || !url.pathname.includes("/app/board/")) {
+      throw new Error("Invalid Miro board URL.");
+    }
+
+    return url.toString();
+  } catch {
+    throw new Error("Paste a valid Miro board URL that starts with https://miro.com/app/board/.");
+  }
+}
+
 function escapeDsl(value: string) {
   return value
     .replaceAll("\\", "\\\\")
     .replaceAll('"', '\\"')
     .replaceAll("\r\n", "\\n")
     .replaceAll("\n", "\\n");
+}
+
+function sanitizeMiroDiagramLabel(value: string) {
+  return value
+    .replaceAll("\r\n", " ")
+    .replaceAll("\n", " ")
+    .replaceAll("|", "-")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function truncate(value: string, maxLength: number) {

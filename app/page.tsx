@@ -26,6 +26,7 @@ export default function Home() {
   const [shotlist, setShotlist] = useState<Shotlist | null>(null);
   const [miroResult, setMiroResult] = useState<MiroBoardResult | null>(null);
   const [videoResult, setVideoResult] = useState<VideoJobResult | null>(null);
+  const [miroBoardUrl, setMiroBoardUrl] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isMiroConnected, setIsMiroConnected] = useState(false);
   const [isRoutingToMiro, setIsRoutingToMiro] = useState(false);
@@ -114,7 +115,7 @@ export default function Home() {
       const response = await fetch("/api/miro", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shotlist })
+        body: JSON.stringify({ boardUrl: miroBoardUrl.trim() || undefined, shotlist })
       });
       const payload = (await response.json()) as { miro?: MiroBoardResult; error?: string };
 
@@ -197,8 +198,10 @@ export default function Home() {
             isCreatingVideo={isCreatingVideo}
             isMiroConnected={isMiroConnected}
             isRoutingToMiro={isRoutingToMiro}
+            miroBoardUrl={miroBoardUrl}
             miroError={miroError}
             miroResult={miroResult}
+            onMiroBoardUrlChange={setMiroBoardUrl}
             onCreateVideo={createVideo}
             onRouteToMiro={routeToMiro}
             shotlist={shotlist}

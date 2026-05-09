@@ -10,8 +10,10 @@ type IntegrationPanelProps = {
   isMiroConnected: boolean;
   isRoutingToMiro: boolean;
   isCreatingVideo: boolean;
+  miroBoardUrl: string;
   miroError: string | null;
   videoError: string | null;
+  onMiroBoardUrlChange: (value: string) => void;
   onRouteToMiro: () => void;
   onCreateVideo: () => void;
 };
@@ -23,8 +25,10 @@ export function IntegrationPanel({
   isMiroConnected,
   isRoutingToMiro,
   isCreatingVideo,
+  miroBoardUrl,
   miroError,
   videoError,
+  onMiroBoardUrlChange,
   onRouteToMiro,
   onCreateVideo
 }: IntegrationPanelProps) {
@@ -40,6 +44,17 @@ export function IntegrationPanel({
         <p className="mt-2 text-sm leading-6 text-[#647174]">
           Route the structured shotlist to the Miro MCP layer so collaborators can refine shots and add more visual references.
         </p>
+        <label className="mt-4 block text-sm font-bold text-[#1d2528]" htmlFor="miro-board-url">
+          Existing Miro board URL
+        </label>
+        <input
+          className="mt-2 min-h-11 w-full rounded-lg border border-stone-300 bg-white px-3 text-sm text-[#1d2528] outline-none transition focus:border-[#2f6f63] focus:ring-2 focus:ring-[#2f6f63]/15"
+          id="miro-board-url"
+          onChange={(event) => onMiroBoardUrlChange(event.target.value)}
+          placeholder="Optional: https://miro.com/app/board/..."
+          type="url"
+          value={miroBoardUrl}
+        />
         <button
           className="mt-4 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#eef4ef] px-4 font-bold text-[#1d2528] disabled:cursor-not-allowed disabled:opacity-55"
           disabled={!shotlist || isRoutingToMiro}
@@ -47,7 +62,7 @@ export function IntegrationPanel({
           type="button"
         >
           {isRoutingToMiro ? <Loader2 className="animate-spin" size={18} /> : <ExternalLink size={18} />}
-          Create Miro Board
+          {miroBoardUrl.trim() ? "Send to Miro Board" : "Create Miro Board"}
         </button>
         <a
           className="ml-3 mt-4 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 font-bold text-[#1d2528]"
