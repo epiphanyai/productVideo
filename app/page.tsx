@@ -29,6 +29,9 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRoutingToMiro, setIsRoutingToMiro] = useState(false);
   const [isCreatingVideo, setIsCreatingVideo] = useState(false);
+  const [shotlistError, setShotlistError] = useState<string | null>(null);
+  const [miroError, setMiroError] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   const activeStage = useMemo<WorkflowStage>(() => {
     if (videoResult) {
@@ -50,6 +53,9 @@ export default function Home() {
     setIsGenerating(true);
     setMiroResult(null);
     setVideoResult(null);
+    setShotlistError(null);
+    setMiroError(null);
+    setVideoError(null);
 
     try {
       const response = await fetch("/api/shotlist", {
@@ -64,6 +70,8 @@ export default function Home() {
       }
 
       setShotlist(payload.shotlist);
+    } catch (error) {
+      setShotlistError(error instanceof Error ? error.message : "Unable to create shotlist.");
     } finally {
       setIsGenerating(false);
     }
@@ -75,6 +83,7 @@ export default function Home() {
     }
 
     setIsRoutingToMiro(true);
+    setMiroError(null);
     try {
       const response = await fetch("/api/miro", {
         method: "POST",
@@ -88,6 +97,8 @@ export default function Home() {
       }
 
       setMiroResult(payload.miro);
+    } catch (error) {
+      setMiroError(error instanceof Error ? error.message : "Unable to create Miro board.");
     } finally {
       setIsRoutingToMiro(false);
     }
@@ -99,6 +110,7 @@ export default function Home() {
     }
 
     setIsCreatingVideo(true);
+    setVideoError(null);
     try {
       const response = await fetch("/api/video", {
         method: "POST",
@@ -112,6 +124,8 @@ export default function Home() {
       }
 
       setVideoResult(payload.video);
+    } catch (error) {
+      setVideoError(error instanceof Error ? error.message : "Unable to create video.");
     } finally {
       setIsCreatingVideo(false);
     }
@@ -146,6 +160,7 @@ export default function Home() {
       <section className="grid gap-6 px-5 pb-14 md:px-10 lg:grid-cols-[430px_minmax(0,1fr)] lg:px-14">
         <ProductIntake
           brief={brief}
+          error={shotlistError}
           isGenerating={isGenerating}
           onBriefChange={setBrief}
           onGenerateShotlist={generateShotlist}
@@ -155,10 +170,12 @@ export default function Home() {
           <IntegrationPanel
             isCreatingVideo={isCreatingVideo}
             isRoutingToMiro={isRoutingToMiro}
+            miroError={miroError}
             miroResult={miroResult}
             onCreateVideo={createVideo}
             onRouteToMiro={routeToMiro}
             shotlist={shotlist}
+            videoError={videoError}
             videoResult={videoResult}
           />
         </div>
