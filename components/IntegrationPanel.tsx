@@ -61,15 +61,17 @@ export function IntegrationPanel({
               <span>Board: {miroResult.boardId}</span>
               <span>Items: {miroResult.itemCount}</span>
             </div>
-            <a
-              className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 font-bold text-[#172225]"
-              href={miroResult.boardUrl}
-              rel="noreferrer"
-              target="_blank"
-            >
-              <ExternalLink size={16} />
-              Open Board
-            </a>
+            {miroResult.boardUrl ? (
+              <a
+                className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 font-bold text-[#172225]"
+                href={miroResult.boardUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <ExternalLink size={16} />
+                Open Board
+              </a>
+            ) : null}
           </div>
         ) : null}
       </div>

@@ -37,9 +37,9 @@ export type Shotlist = {
 
 export type MiroBoardResult = {
   boardId: string;
-  boardUrl: string;
+  boardUrl: string | null;
   status: "mocked" | "created";
-  provider: "mock" | "miro-rest";
+  provider: "miro-mcp";
   itemCount: number;
   itemIds: string[];
   message: string;
