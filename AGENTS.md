@@ -27,9 +27,18 @@ Set required environment variables in `.env.local` as needed:
 ```bash
 FAL_API_KEY=
 OPENAI_API_KEY=
+
+# Streamable HTTP Miro MCP server
+# Example: https://mcp.miro.com
+MIRO_MCP_URL=
+MIRO_OAUTH_REDIRECT_URL=http://localhost:3000/api/miro/auth/callback
+
+# Or stdio Miro MCP server
+# MIRO_MCP_COMMAND=
+# MIRO_MCP_ARGS=["arg-one","arg-two"]
 ```
 
-Miro authentication is handled through OAuth by the Miro MCP server. Do not add `MIRO_ACCESS_TOKEN`, `MIRO_BOARD_ID`, or similar Miro REST credentials to app env files.
+Miro authentication is handled through OAuth by the Miro MCP server. Do not add `MIRO_ACCESS_TOKEN`, `MIRO_BOARD_ID`, or similar Miro REST credentials to app env files. The app can connect to Miro MCP through either `MIRO_MCP_URL` for Streamable HTTP or `MIRO_MCP_COMMAND` / `MIRO_MCP_ARGS` for stdio.
 
 ---
 
@@ -59,6 +68,7 @@ app/
 components/             # UI components
 lib/
   agent-runtime/        # Shot list, Miro, and video runtime adapters
+    miro-mcp.ts         # Miro MCP server configuration
   workflow/             # Shared workflow types and style definitions
 ```
 

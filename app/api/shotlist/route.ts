@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createShotlist } from "@/lib/agent-runtime/shotlist";
 import type { ProductBrief } from "@/lib/workflow/types";
 
+export const runtime = "nodejs";
+
 export async function POST(request: Request) {
   try {
     const brief = (await request.json()) as ProductBrief;

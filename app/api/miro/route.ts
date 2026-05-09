@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
-import { routeShotlistToMiro } from "@/lib/agent-runtime/miro";
+import { inspectMiroMcp, routeShotlistToMiro } from "@/lib/agent-runtime/miro";
 import type { Shotlist } from "@/lib/workflow/types";
+
+export const runtime = "nodejs";
+
+export async function GET() {
+  try {
+    return NextResponse.json({ miro: await inspectMiroMcp() });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to inspect Miro MCP.";
+
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
+}
 
 export async function POST(request: Request) {
   try {
