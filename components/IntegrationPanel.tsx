@@ -7,6 +7,7 @@ type IntegrationPanelProps = {
   miroResult: MiroBoardResult | null;
   videoResult: VideoJobResult | null;
   shotlist: Shotlist | null;
+  isMiroConnected: boolean;
   isRoutingToMiro: boolean;
   isCreatingVideo: boolean;
   miroError: string | null;
@@ -19,6 +20,7 @@ export function IntegrationPanel({
   miroResult,
   videoResult,
   shotlist,
+  isMiroConnected,
   isRoutingToMiro,
   isCreatingVideo,
   miroError,
@@ -49,10 +51,10 @@ export function IntegrationPanel({
         </button>
         <a
           className="ml-3 mt-4 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 font-bold text-[#1d2528]"
-          href="/api/miro/auth/start"
+          href={isMiroConnected ? "/api/miro/auth/reconnect" : "/api/miro/auth/start"}
         >
           <ExternalLink size={18} />
-          Connect Miro
+          {isMiroConnected ? "Reconnect Miro" : "Connect Miro"}
         </a>
         {miroError ? (
           <div className="mt-4 rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
