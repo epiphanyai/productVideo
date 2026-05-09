@@ -1,5 +1,22 @@
+import { Agent, run } from "@openai/agents";
+import { z } from "zod";
 import { getVideoStyleLabel } from "@/lib/workflow/styles";
 import type { ProductBrief, Shot, Shotlist } from "@/lib/workflow/types";
+
+const agentShotSchema = z.object({
+  title: z.string(),
+  durationSeconds: z.number().int().min(2).max(12),
+  framing: z.string(),
+  motion: z.string(),
+  prompt: z.string(),
+  assets: z.array(z.string())
+});
+
+const shotlistDraftSchema = z.object({
+  productName: z.string(),
+  concept: z.string(),
+  shots: z.array(agentShotSchema).min(4).max(8)
+});
 
 const styleDirection = {
   studio: {
@@ -24,7 +41,53 @@ const styleDirection = {
   }
 };
 
-export function createShotlist(brief: ProductBrief): Shotlist {
+const shotlistAgent = new Agent({
+  name: "Product Video Shotlist Agent",
+  instructions: [
+    "Create practical product video shotlists for short-form product videos.",
+    "Return only structured output that matches the requested schema.",
+    "Write vivid but executable prompts for video generation.",
+    "Use uploaded photo names as assets only when they are relevant to a shot.",
+    "Keep the plan concise enough for collaborators to review in Miro."
+  ].join(" "),
+  outputType: shotlistDraftSchema
+});
+
+export async function createShotlist(brief: ProductBrief): Promise<Shotlist> {
+  if (!process.env.OPENAI_API_KEY?.trim()) {
+    return createMockShotlist(brief);
+  }
+
+  const result = await run(
+    shotlistAgent,
+    JSON.stringify(
+      {
+        productName: brief.productName,
+        description: brief.description,
+        audience: brief.audience,
+        style: {
+          id: brief.style,
+          label: getVideoStyleLabel(brief.style),
+          direction: styleDirection[brief.style]
+        },
+        photos: brief.photos.map((photo) => ({
+          name: photo.name,
+          url: photo.url
+        }))
+      },
+      null,
+      2
+    )
+  );
+
+  if (!result.finalOutput) {
+    throw new Error("Shotlist agent did not return structured output.");
+  }
+
+  return normalizeShotlistDraft(brief, result.finalOutput);
+}
+
+function createMockShotlist(brief: ProductBrief): Shotlist {
   const direction = styleDirection[brief.style];
   const productName = brief.productName.trim() || "Product";
   const audience = brief.audience.trim() || "target customers";
@@ -89,6 +152,30 @@ export function createShotlist(brief: ProductBrief): Shotlist {
     style: brief.style,
     concept: direction.concept,
     shots,
+    createdAt: new Date().toISOString()
+  };
+}
+
+function normalizeShotlistDraft(
+  brief: ProductBrief,
+  draft: z.infer<typeof shotlistDraftSchema>
+): Shotlist {
+  const productName = draft.productName.trim() || brief.productName.trim() || "Product";
+
+  return {
+    id: `shotlist-${Date.now()}`,
+    productName,
+    style: brief.style,
+    concept: draft.concept.trim(),
+    shots: draft.shots.map((shot, index) => ({
+      id: `shot-${String(index + 1).padStart(2, "0")}`,
+      title: shot.title.trim(),
+      durationSeconds: shot.durationSeconds,
+      framing: shot.framing.trim(),
+      motion: shot.motion.trim(),
+      prompt: shot.prompt.trim(),
+      assets: shot.assets.filter((asset) => asset.trim()).map((asset) => asset.trim())
+    })),
     createdAt: new Date().toISOString()
   };
 }
