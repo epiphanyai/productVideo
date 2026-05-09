@@ -9,6 +9,8 @@ type IntegrationPanelProps = {
   shotlist: Shotlist | null;
   isRoutingToMiro: boolean;
   isCreatingVideo: boolean;
+  miroError: string | null;
+  videoError: string | null;
   onRouteToMiro: () => void;
   onCreateVideo: () => void;
 };
@@ -19,6 +21,8 @@ export function IntegrationPanel({
   shotlist,
   isRoutingToMiro,
   isCreatingVideo,
+  miroError,
+  videoError,
   onRouteToMiro,
   onCreateVideo
 }: IntegrationPanelProps) {
@@ -41,10 +45,32 @@ export function IntegrationPanel({
           {isRoutingToMiro ? <Loader2 className="animate-spin" size={18} /> : <ExternalLink size={18} />}
           Create Miro Board
         </button>
+        {miroError ? (
+          <div className="mt-4 rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
+            {miroError}
+          </div>
+        ) : null}
         {miroResult ? (
-          <pre className="mt-4 overflow-auto rounded-lg bg-[#172225] p-3 text-xs leading-5 text-[#edf6f0]">
-            {JSON.stringify(miroResult, null, 2)}
-          </pre>
+          <div className="mt-4 rounded-lg bg-[#172225] p-4 text-sm leading-6 text-[#edf6f0]">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <strong>{miroResult.status === "created" ? "Miro board ready" : "Mock board ready"}</strong>
+              <span className="rounded-full bg-white/10 px-3 py-1 text-xs">{miroResult.provider}</span>
+            </div>
+            <p className="mt-2 text-[#c9d8d1]">{miroResult.message}</p>
+            <div className="mt-3 grid gap-1 text-xs text-[#c9d8d1]">
+              <span>Board: {miroResult.boardId}</span>
+              <span>Items: {miroResult.itemCount}</span>
+            </div>
+            <a
+              className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 font-bold text-[#172225]"
+              href={miroResult.boardUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <ExternalLink size={16} />
+              Open Board
+            </a>
+          </div>
         ) : null}
       </div>
 
@@ -65,6 +91,11 @@ export function IntegrationPanel({
           {isCreatingVideo ? <Loader2 className="animate-spin" size={18} /> : <Film size={18} />}
           Create Video
         </button>
+        {videoError ? (
+          <div className="mt-4 rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
+            {videoError}
+          </div>
+        ) : null}
         {videoResult ? (
           <pre className="mt-4 overflow-auto rounded-lg bg-[#172225] p-3 text-xs leading-5 text-[#edf6f0]">
             {JSON.stringify(videoResult, null, 2)}

@@ -6,6 +6,7 @@ import type { ProductBrief, ProductPhoto, VideoStyleId } from "@/lib/workflow/ty
 
 type ProductIntakeProps = {
   brief: ProductBrief;
+  error: string | null;
   isGenerating: boolean;
   onBriefChange: (brief: ProductBrief) => void;
   onGenerateShotlist: () => void;
@@ -13,6 +14,7 @@ type ProductIntakeProps = {
 
 export function ProductIntake({
   brief,
+  error,
   isGenerating,
   onBriefChange,
   onGenerateShotlist
@@ -136,6 +138,11 @@ export function ProductIntake({
           {isGenerating ? <Loader2 className="animate-spin" size={18} /> : <WandSparkles size={18} />}
           Create Shotlist
         </button>
+        {error ? (
+          <div className="rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
+            {error}
+          </div>
+        ) : null}
       </div>
     </section>
   );

@@ -39,6 +39,9 @@ export type MiroBoardResult = {
   boardId: string;
   boardUrl: string;
   status: "mocked" | "created";
+  provider: "mock" | "miro-rest";
+  itemCount: number;
+  itemIds: string[];
   message: string;
 };
 
