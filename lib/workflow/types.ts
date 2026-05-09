@@ -42,6 +42,7 @@ export type MiroBoardResult = {
   provider: "miro-mcp";
   itemCount: number;
   itemIds: string[];
+  tools?: string[];
   message: string;
 };
 

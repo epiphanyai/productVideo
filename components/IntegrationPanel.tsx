@@ -45,6 +45,13 @@ export function IntegrationPanel({
           {isRoutingToMiro ? <Loader2 className="animate-spin" size={18} /> : <ExternalLink size={18} />}
           Create Miro Board
         </button>
+        <a
+          className="ml-3 mt-4 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 font-bold text-[#1d2528]"
+          href="/api/miro/auth/start"
+        >
+          <ExternalLink size={18} />
+          Connect Miro
+        </a>
         {miroError ? (
           <div className="mt-4 rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
             {miroError}
@@ -60,6 +67,7 @@ export function IntegrationPanel({
             <div className="mt-3 grid gap-1 text-xs text-[#c9d8d1]">
               <span>Board: {miroResult.boardId}</span>
               <span>Items: {miroResult.itemCount}</span>
+              {miroResult.tools?.length ? <span>MCP tools: {miroResult.tools.length}</span> : null}
             </div>
             {miroResult.boardUrl ? (
               <a
