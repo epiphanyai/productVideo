@@ -122,6 +122,20 @@ export async function getExpectedMiroOAuthState() {
   return (await readMiroOAuthStore()).state;
 }
 
+export async function getMiroOAuthStatus() {
+  const store = await readMiroOAuthStore();
+
+  return {
+    connected: Boolean(store.tokens?.access_token),
+    clientId: store.clientInformation?.client_id ?? null,
+    scope: store.tokens?.scope ?? null
+  };
+}
+
+export async function clearMiroOAuthCredentials() {
+  await writeMiroOAuthStore({});
+}
+
 async function readMiroOAuthStore(): Promise<MiroOAuthStore> {
   try {
     return JSON.parse(await readFile(MIRO_AUTH_STORE_PATH, "utf8")) as MiroOAuthStore;

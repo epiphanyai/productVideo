@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { IntegrationPanel } from "@/components/IntegrationPanel";
 import { ProductIntake } from "@/components/ProductIntake";
 import { ShotlistWorkspace } from "@/components/ShotlistWorkspace";
@@ -27,6 +27,7 @@ export default function Home() {
   const [miroResult, setMiroResult] = useState<MiroBoardResult | null>(null);
   const [videoResult, setVideoResult] = useState<VideoJobResult | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isMiroConnected, setIsMiroConnected] = useState(false);
   const [isRoutingToMiro, setIsRoutingToMiro] = useState(false);
   const [isCreatingVideo, setIsCreatingVideo] = useState(false);
   const [shotlistError, setShotlistError] = useState<string | null>(null);
@@ -48,6 +49,31 @@ export default function Home() {
 
     return "intake";
   }, [miroResult, shotlist, videoResult]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadMiroAuthStatus() {
+      try {
+        const response = await fetch("/api/miro/auth/status");
+        const payload = (await response.json()) as { miroAuth?: { connected?: boolean } };
+
+        if (isMounted) {
+          setIsMiroConnected(Boolean(payload.miroAuth?.connected));
+        }
+      } catch {
+        if (isMounted) {
+          setIsMiroConnected(false);
+        }
+      }
+    }
+
+    void loadMiroAuthStatus();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   async function generateShotlist() {
     setIsGenerating(true);
@@ -169,6 +195,7 @@ export default function Home() {
           <ShotlistWorkspace shotlist={shotlist} />
           <IntegrationPanel
             isCreatingVideo={isCreatingVideo}
+            isMiroConnected={isMiroConnected}
             isRoutingToMiro={isRoutingToMiro}
             miroError={miroError}
             miroResult={miroResult}
