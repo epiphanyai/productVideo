@@ -45,7 +45,9 @@ export function createMiroMcpServer(
     return new MCPServerStreamableHttp({
       authProvider: options.redirectUrl ? new MiroOAuthProvider(options.redirectUrl) : undefined,
       cacheToolsList: true,
+      clientSessionTimeoutSeconds: getMiroMcpSessionTimeoutSeconds(),
       name: "miro",
+      timeout: getMiroMcpRequestTimeoutMs(),
       url: config.url
     });
   }
@@ -53,8 +55,10 @@ export function createMiroMcpServer(
   return new MCPServerStdio({
     args: config.args,
     cacheToolsList: true,
+    clientSessionTimeoutSeconds: getMiroMcpSessionTimeoutSeconds(),
     command: config.command,
-    name: "miro"
+    name: "miro",
+    timeout: getMiroMcpRequestTimeoutMs()
   });
 }
 
@@ -80,4 +84,17 @@ function parseMcpArgs(value: string | undefined): string[] {
   }
 
   return value.split(" ").filter(Boolean);
+}
+
+function getMiroMcpRequestTimeoutMs() {
+  return parsePositiveInteger(process.env.MIRO_MCP_REQUEST_TIMEOUT_MS, 120_000);
+}
+
+function getMiroMcpSessionTimeoutSeconds() {
+  return parsePositiveInteger(process.env.MIRO_MCP_SESSION_TIMEOUT_SECONDS, 120);
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }

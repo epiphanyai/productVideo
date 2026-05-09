@@ -26,6 +26,8 @@ export function IntegrationPanel({
   onRouteToMiro,
   onCreateVideo
 }: IntegrationPanelProps) {
+  const miroEmbedUrl = miroResult?.boardUrl ? getMiroEmbedUrl(miroResult.boardUrl) : null;
+
   return (
     <section className="grid gap-4 lg:grid-cols-2">
       <div className="rounded-lg border border-stone-300 bg-white p-5 shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
@@ -80,6 +82,16 @@ export function IntegrationPanel({
                 Open Board
               </a>
             ) : null}
+            {miroEmbedUrl ? (
+              <div className="mt-4 overflow-hidden rounded-lg border border-white/10 bg-white">
+                <iframe
+                  allow="fullscreen; clipboard-read; clipboard-write"
+                  className="h-[420px] w-full"
+                  src={miroEmbedUrl}
+                  title="Miro shotlist board"
+                />
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -114,4 +126,10 @@ export function IntegrationPanel({
       </div>
     </section>
   );
+}
+
+function getMiroEmbedUrl(boardUrl: string) {
+  const boardId = boardUrl.match(/\/board\/([^/?#]+)/)?.[1];
+
+  return boardId ? `https://miro.com/app/live-embed/${boardId}/` : null;
 }
