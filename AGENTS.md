@@ -32,6 +32,8 @@ OPENAI_API_KEY=
 # Example: https://mcp.miro.com
 MIRO_MCP_URL=
 MIRO_OAUTH_REDIRECT_URL=http://localhost:3000/api/miro/auth/callback
+MIRO_MCP_REQUEST_TIMEOUT_MS=120000
+MIRO_MCP_SESSION_TIMEOUT_SECONDS=120
 
 # Or stdio Miro MCP server
 # MIRO_MCP_COMMAND=
