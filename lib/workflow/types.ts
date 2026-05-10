@@ -1,6 +1,8 @@
 export type VideoStyleId = "studio" | "ugc" | "cinematic" | "technical";
 
-export type WorkflowStage = "intake" | "shotlist" | "miro" | "video";
+export type WorkflowStage = "intake" | "miro" | "image-shotlist" | "video";
+
+export type WorkflowRunStatus = "idle" | "running" | "ready" | "error";
 
 export type ProductPhoto = {
   id: string;
@@ -24,6 +26,11 @@ export type Shot = {
   motion: string;
   prompt: string;
   assets: string[];
+  startImageUrl?: string;
+  sourceImageUrls?: string[];
+  imagePrompt?: string;
+  imageStatus?: WorkflowRunStatus;
+  imageError?: string;
 };
 
 export type Shotlist = {
@@ -45,6 +52,32 @@ export type MiroBoardResult = {
   itemCount: number;
   itemIds: string[];
   tools?: string[];
+  message: string;
+};
+
+export type MiroBoardContext = {
+  boardUrl: string | null;
+  tools: string[];
+  text: string;
+  items: MiroBoardContextItem[];
+  imageUrls: string[];
+  raw: unknown[];
+};
+
+export type MiroBoardContextItem = {
+  id?: string;
+  type?: string;
+  title?: string;
+  content?: string;
+  url?: string;
+  imageUrl?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ImageShotlistResult = {
+  shotlist: Shotlist;
+  boardContext: MiroBoardContext;
+  imageStatus: "mocked" | "created";
   message: string;
 };
 

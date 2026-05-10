@@ -2,9 +2,9 @@ import type { WorkflowStage } from "@/lib/workflow/types";
 
 const steps: { id: WorkflowStage; label: string; detail: string }[] = [
   { id: "intake", label: "Product Intake", detail: "Brief, photos, style" },
-  { id: "shotlist", label: "Shotlist Agent", detail: "Codex drafts shots" },
-  { id: "miro", label: "Miro Review", detail: "Team refines board" },
-  { id: "video", label: "Video Job", detail: "Generate final cut" }
+  { id: "miro", label: "Miro Board", detail: "Team edits source" },
+  { id: "image-shotlist", label: "Image Shotlist", detail: "Board to frames" },
+  { id: "video", label: "Video", detail: "Generate draft" }
 ];
 
 type WorkflowHeaderProps = {

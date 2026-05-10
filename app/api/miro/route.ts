@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { inspectMiroMcp, routeShotlistToMiro } from "@/lib/agent-runtime/miro";
-import type { Shotlist } from "@/lib/workflow/types";
+import { createMiroBoardFromBrief, inspectMiroMcp, routeShotlistToMiro } from "@/lib/agent-runtime/miro";
+import type { ProductBrief, Shotlist } from "@/lib/workflow/types";
 
 export const runtime = "nodejs";
 
@@ -16,12 +16,21 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { boardUrl, shotlist } = (await request.json()) as { boardUrl?: string; shotlist: Shotlist };
+    const { boardUrl, brief, shotlist } = (await request.json()) as {
+      boardUrl?: string;
+      brief?: ProductBrief;
+      shotlist?: Shotlist;
+    };
 
-    if (!shotlist?.shots?.length) {
-      return NextResponse.json({ error: "Shotlist is required." }, { status: 400 });
+    if (brief?.description?.trim()) {
+      return NextResponse.json({ miro: await createMiroBoardFromBrief(brief, { boardUrl }) });
     }
 
+    if (!shotlist?.shots?.length) {
+      return NextResponse.json({ error: "Product brief is required." }, { status: 400 });
+    }
+
+    // Backward-compatible path for existing clients that already hold a shotlist.
     return NextResponse.json({ miro: await routeShotlistToMiro(shotlist, { boardUrl }) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to route shotlist to Miro.";

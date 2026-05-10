@@ -23,16 +23,23 @@ export async function createVideoFromShotlist(
   }
 
   const referencePhoto = findReferencePhoto(shotlist, photos);
+  const hasGeneratedShotImages = shotlist.shots.some((shot) => Boolean(shot.startImageUrl));
 
-  if (!referencePhoto) {
-    throw new Error("Add at least one product photo before creating a fal video draft.");
+  if (!referencePhoto && !hasGeneratedShotImages) {
+    throw new Error("Create generated shot images or add at least one product photo before creating a fal video draft.");
   }
 
   const uploadedPhotos = new Map<string, string>();
   const clips = await Promise.all(
     shotlist.shots.map(async (shot, index) => {
       const shotPhoto = findReferencePhoto({ ...shotlist, shots: [shot] }, photos) ?? referencePhoto;
-      const referenceImageUrl = await getCachedFalImageUrl(shotPhoto, uploadedPhotos);
+      const referenceImageUrl =
+        shot.startImageUrl ?? (shotPhoto ? await getCachedFalImageUrl(shotPhoto, uploadedPhotos) : null);
+
+      if (!referenceImageUrl) {
+        throw new Error(`Shot ${index + 1} does not have a generated starting image or product photo fallback.`);
+      }
+
       const prompt = buildShotPrompt(shotlist, shot, index);
       const result = await fal.subscribe(draftModel, {
         input: {

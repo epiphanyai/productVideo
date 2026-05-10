@@ -1,36 +1,36 @@
 "use client";
 
-import { ExternalLink, Film, Loader2 } from "lucide-react";
-import type { Shotlist, VideoJobResult } from "@/lib/workflow/types";
+import { ExternalLink, Film } from "lucide-react";
+import type { VideoJobResult } from "@/lib/workflow/types";
 
 type VideoPanelProps = {
   result: VideoJobResult | null;
-  shotlist: Shotlist | null;
   isCreating: boolean;
   error: string | null;
-  onCreateVideo: () => void;
 };
 
-export function VideoPanel({ result, shotlist, isCreating, error, onCreateVideo }: VideoPanelProps) {
+export function VideoPanel({ result, isCreating, error }: VideoPanelProps) {
+  if (!result && !isCreating && !error) {
+    return (
+      <div className="grid min-h-52 place-items-center rounded-lg border border-stone-300 bg-white p-6 text-center shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
+        <div>
+          <Film className="mx-auto mb-3 text-[#2f6f63]" size={28} />
+          <h3 className="text-base font-bold">Video will appear here</h3>
+          <p className="mt-2 max-w-md text-sm leading-6 text-[#647174]">
+            Create it from the finalized image shotlist.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-stone-300 bg-white p-5 shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
       <h3 className="flex items-center gap-2 text-base font-bold">
         <Film size={18} />
-        Video Creation Job
+        Video
       </h3>
-      <p className="mt-2 text-sm leading-6 text-[#647174]">
-        Send the current shotlist and uploaded photos into the video generation adapter.
-      </p>
-      <button
-        className="mt-4 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#2f6f63] px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-55"
-        disabled={!shotlist || isCreating}
-        onClick={onCreateVideo}
-        type="button"
-      >
-        {isCreating ? <Loader2 className="animate-spin" size={18} /> : <Film size={18} />}
-        Create Video
-      </button>
-      {isCreating ? <VideoProgress targetDurationSeconds={shotlist?.targetDurationSeconds ?? 0} /> : null}
+      {isCreating ? <VideoProgress targetDurationSeconds={result?.targetDurationSeconds ?? 0} /> : null}
       {error ? (
         <div className="mt-4 rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
           {error}
@@ -51,6 +51,7 @@ function VideoProgress({ targetDurationSeconds }: { targetDurationSeconds: numbe
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
         <div className="h-full w-1/2 animate-[video-progress_1.4s_ease-in-out_infinite] rounded-full bg-[#2f6f63]" />
       </div>
+      <div className="mt-4 aspect-video animate-pulse rounded-lg bg-white/70" />
     </div>
   );
 }

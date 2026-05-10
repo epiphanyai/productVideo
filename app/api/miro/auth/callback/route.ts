@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   const error = url.searchParams.get("error");
 
   if (error) {
-    return NextResponse.redirect(new URL(`/?miro=error&message=${encodeURIComponent(error)}`, request.url));
+    return miroAuthPopupResponse("error", error);
   }
 
   if (!code) {
@@ -32,5 +32,28 @@ export async function GET(request: Request) {
     serverUrl
   });
 
-  return NextResponse.redirect(new URL("/?miro=connected", request.url));
+  return miroAuthPopupResponse("connected");
+}
+
+function miroAuthPopupResponse(status: "connected" | "error", message = "") {
+  return new NextResponse(
+    `<!doctype html>
+<html>
+  <head><title>Miro authentication</title></head>
+  <body>
+    <script>
+      if (window.opener) {
+        window.opener.postMessage(${JSON.stringify({ type: "miro-auth", status, message })}, window.location.origin);
+      }
+      window.close();
+    </script>
+    <p>Miro authentication ${status === "connected" ? "complete" : "failed"}. You can close this window.</p>
+  </body>
+</html>`,
+    {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8"
+      }
+    }
+  );
 }

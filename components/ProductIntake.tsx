@@ -10,7 +10,7 @@ type ProductIntakeProps = {
   error: string | null;
   isGenerating: boolean;
   onBriefChange: (brief: ProductBrief) => void;
-  onGenerateShotlist: () => void;
+  onCreateMiroBoard: () => void;
 };
 
 export function ProductIntake({
@@ -18,7 +18,7 @@ export function ProductIntake({
   error,
   isGenerating,
   onBriefChange,
-  onGenerateShotlist
+  onCreateMiroBoard
 }: ProductIntakeProps) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
@@ -164,11 +164,11 @@ export function ProductIntake({
         <button
           className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#2f6f63] px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-55"
           disabled={isGenerating || isUploadingPhotos || !brief.description.trim()}
-          onClick={onGenerateShotlist}
+          onClick={onCreateMiroBoard}
           type="button"
         >
           {isGenerating ? <Loader2 className="animate-spin" size={18} /> : <WandSparkles size={18} />}
-          Create Shotlist
+          Create Miro Board
         </button>
         {uploadError ? (
           <div className="rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">

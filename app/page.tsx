@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { IntegrationPanel } from "@/components/IntegrationPanel";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { MiroPanel } from "@/components/MiroPanel";
 import { ProductIntake } from "@/components/ProductIntake";
 import { ShotlistWorkspace } from "@/components/ShotlistWorkspace";
+import { VideoPanel } from "@/components/VideoPanel";
 import { WorkflowHeader } from "@/components/WorkflowHeader";
 import type {
+  ImageShotlistResult,
   MiroBoardResult,
   ProductBrief,
   Shotlist,
@@ -25,104 +27,99 @@ export default function Home() {
   const [brief, setBrief] = useState<ProductBrief>(defaultBrief);
   const [shotlist, setShotlist] = useState<Shotlist | null>(null);
   const [miroResult, setMiroResult] = useState<MiroBoardResult | null>(null);
+  const [imageShotlistResult, setImageShotlistResult] = useState<ImageShotlistResult | null>(null);
   const [videoResult, setVideoResult] = useState<VideoJobResult | null>(null);
   const [miroBoardUrl, setMiroBoardUrl] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
   const [isMiroConnected, setIsMiroConnected] = useState(false);
-  const [isRoutingToMiro, setIsRoutingToMiro] = useState(false);
+  const [isCreatingBoard, setIsCreatingBoard] = useState(false);
+  const [isCreatingShotlist, setIsCreatingShotlist] = useState(false);
+  const [isGeneratingImages, setIsGeneratingImages] = useState(false);
   const [isCreatingVideo, setIsCreatingVideo] = useState(false);
-  const [shotlistError, setShotlistError] = useState<string | null>(null);
+  const [showExistingBoardInput, setShowExistingBoardInput] = useState(false);
   const [miroError, setMiroError] = useState<string | null>(null);
+  const [shotlistError, setShotlistError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const imageGenerationRunId = useRef(0);
 
   const activeStage = useMemo<WorkflowStage>(() => {
     if (videoResult) {
       return "video";
     }
 
-    if (miroResult) {
-      return "miro";
+    if (shotlist) {
+      return "image-shotlist";
     }
 
-    if (shotlist) {
-      return "shotlist";
+    if (miroResult) {
+      return "miro";
     }
 
     return "intake";
   }, [miroResult, shotlist, videoResult]);
 
   useEffect(() => {
-    let isMounted = true;
-
-    async function loadMiroAuthStatus() {
-      try {
-        const response = await fetch("/api/miro/auth/status");
-        const payload = (await response.json()) as { miroAuth?: { connected?: boolean } };
-
-        if (isMounted) {
-          setIsMiroConnected(Boolean(payload.miroAuth?.connected));
-        }
-      } catch {
-        if (isMounted) {
-          setIsMiroConnected(false);
-        }
-      }
-    }
-
     void loadMiroAuthStatus();
 
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  async function generateShotlist() {
-    setIsGenerating(true);
-    setMiroResult(null);
-    setVideoResult(null);
-    setShotlistError(null);
-    setMiroError(null);
-    setVideoError(null);
-
-    try {
-      const response = await fetch("/api/shotlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...brief,
-          photos: brief.photos.map((photo) => ({
-            id: photo.id,
-            name: photo.name,
-            url: summarizePhotoForShotlist(photo.url)
-          }))
-        })
-      });
-      const payload = (await response.json()) as { shotlist?: Shotlist; error?: string };
-
-      if (!response.ok || !payload.shotlist) {
-        throw new Error(payload.error ?? "Unable to create shotlist.");
+    function handleMiroAuthMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin || event.data?.type !== "miro-auth") {
+        return;
       }
 
-      setShotlist(payload.shotlist);
-    } catch (error) {
-      setShotlistError(error instanceof Error ? error.message : "Unable to create shotlist.");
-    } finally {
-      setIsGenerating(false);
+      void loadMiroAuthStatus();
+    }
+
+    window.addEventListener("message", handleMiroAuthMessage);
+
+    return () => window.removeEventListener("message", handleMiroAuthMessage);
+  }, []);
+
+  async function loadMiroAuthStatus() {
+    try {
+      const response = await fetch("/api/miro/auth/status");
+      const payload = (await response.json()) as { miroAuth?: { connected?: boolean } };
+
+      setIsMiroConnected(Boolean(payload.miroAuth?.connected));
+    } catch {
+      setIsMiroConnected(false);
     }
   }
 
-  async function routeToMiro() {
-    if (!shotlist) {
+  function openMiroAuth(reconnect = false) {
+    const authUrl = reconnect ? "/api/miro/auth/reconnect" : "/api/miro/auth/start";
+    const popup = window.open(authUrl, "miro-auth", "popup,width=720,height=760");
+
+    if (!popup) {
+      window.location.href = authUrl;
       return;
     }
 
-    setIsRoutingToMiro(true);
+    const poll = window.setInterval(() => {
+      if (popup.closed) {
+        window.clearInterval(poll);
+        void loadMiroAuthStatus();
+      }
+    }, 1000);
+  }
+
+  async function createMiroBoard(boardUrl?: string) {
+    setIsCreatingBoard(true);
     setMiroError(null);
+    setShotlistError(null);
+    setVideoError(null);
+    setShotlist(null);
+    setImageShotlistResult(null);
+    setVideoResult(null);
+    setIsGeneratingImages(false);
+    imageGenerationRunId.current += 1;
+
     try {
       const response = await fetch("/api/miro", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ boardUrl: miroBoardUrl.trim() || undefined, shotlist })
+        body: JSON.stringify({
+          boardUrl: boardUrl?.trim() || undefined,
+          brief
+        })
       });
       const payload = (await response.json()) as { miro?: MiroBoardResult; error?: string };
 
@@ -131,10 +128,141 @@ export default function Home() {
       }
 
       setMiroResult(payload.miro);
+      setMiroBoardUrl(payload.miro.boardUrl ?? boardUrl ?? "");
+      setShowExistingBoardInput(!payload.miro.boardUrl);
     } catch (error) {
-      setMiroError(error instanceof Error ? error.message : "Unable to create Miro board.");
+      const message = error instanceof Error ? error.message : "Unable to create Miro board.";
+
+      setMiroError(message);
+      setShowExistingBoardInput(true);
     } finally {
-      setIsRoutingToMiro(false);
+      setIsCreatingBoard(false);
+    }
+  }
+
+  async function createShotlistFromMiro() {
+    const boardUrl = miroResult?.boardUrl ?? miroBoardUrl.trim();
+
+    if (!boardUrl) {
+      setShotlistError("Create or enter a Miro board URL first.");
+      setShowExistingBoardInput(true);
+      return;
+    }
+
+    setIsCreatingShotlist(true);
+    setShotlistError(null);
+    setVideoError(null);
+    setShotlist(null);
+    setImageShotlistResult(null);
+    setVideoResult(null);
+    setIsGeneratingImages(false);
+    imageGenerationRunId.current += 1;
+
+    try {
+      const response = await fetch("/api/shotlist/from-miro", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          boardUrl,
+          brief,
+          photos: brief.photos
+        })
+      });
+      const payload = (await response.json()) as { result?: ImageShotlistResult; error?: string };
+
+      if (!response.ok || !payload.result) {
+        throw new Error(payload.error ?? "Unable to create shotlist from Miro.");
+      }
+
+      setImageShotlistResult(payload.result);
+      const baseShotlist = {
+        ...payload.result.shotlist,
+        shots: payload.result.shotlist.shots.map((shot) => ({
+          ...shot,
+          imageStatus: "running" as const,
+          startImageUrl: undefined,
+          imageError: undefined
+        }))
+      };
+
+      setShotlist(baseShotlist);
+      void generateShotImagesSequentially(baseShotlist, payload.result.boardContext.imageUrls);
+    } catch (error) {
+      setShotlistError(error instanceof Error ? error.message : "Unable to create shotlist from Miro.");
+    } finally {
+      setIsCreatingShotlist(false);
+    }
+  }
+
+  async function generateShotImagesSequentially(baseShotlist: Shotlist, miroImageUrls: string[]) {
+    const runId = imageGenerationRunId.current;
+
+    setIsGeneratingImages(true);
+
+    for (const shot of baseShotlist.shots) {
+      if (runId !== imageGenerationRunId.current) {
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/shotlist/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            shotlist: baseShotlist,
+            shotId: shot.id,
+            photos: brief.photos,
+            miroImageUrls
+          })
+        });
+        const payload = (await response.json()) as {
+          result?: { shot: Shotlist["shots"][number]; status: "mocked" | "created"; message: string };
+          error?: string;
+        };
+
+        if (!response.ok || !payload.result) {
+          throw new Error(payload.error ?? "Unable to generate starting image.");
+        }
+
+        setShotlist((current) =>
+          current
+            ? {
+                ...current,
+                shots: current.shots.map((currentShot) =>
+                  currentShot.id === shot.id
+                    ? {
+                        ...payload.result!.shot,
+                        imageStatus: payload.result!.shot.startImageUrl ? "ready" : "idle"
+                      }
+                    : currentShot
+                )
+              }
+            : current
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to generate starting image.";
+
+        setShotlist((current) =>
+          current
+            ? {
+                ...current,
+                shots: current.shots.map((currentShot) =>
+                  currentShot.id === shot.id
+                    ? {
+                        ...currentShot,
+                        imageStatus: "error",
+                        imageError: message
+                      }
+                    : currentShot
+                )
+              }
+            : current
+        );
+      }
+    }
+
+    if (runId === imageGenerationRunId.current) {
+      setIsGeneratingImages(false);
     }
   }
 
@@ -145,6 +273,7 @@ export default function Home() {
 
     setIsCreatingVideo(true);
     setVideoError(null);
+
     try {
       const response = await fetch("/api/video", {
         method: "POST",
@@ -169,64 +298,48 @@ export default function Home() {
     <main className="min-h-screen">
       <WorkflowHeader activeStage={activeStage} />
 
-      <section className="grid gap-8 px-5 py-9 md:px-10 lg:grid-cols-[0.9fr_1.1fr] lg:px-14">
-        <div>
-          <h1 className="max-w-3xl text-5xl font-black leading-none tracking-normal text-[#1d2528] md:text-7xl">
-            Agentic product video creation
-          </h1>
-          <p className="mt-5 max-w-2xl text-lg leading-8 text-[#425054]">
-            Move from product brief to Codex-generated shotlist, Miro collaboration, and video generation through one structured runtime.
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-[#1d2528] text-white md:grid-cols-4">
-          {["Describe product", "Draft shotlist", "Review in Miro", "Create video"].map((label, index) => (
-            <div
-              className={`min-h-28 p-4 ${index === 0 ? "bg-[#1f5148]" : "bg-[#253135]"}`}
-              key={label}
-            >
-              <span className="text-xs text-white/65">0{index + 1}</span>
-              <strong className="mt-5 block text-sm leading-5">{label}</strong>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="grid gap-6 px-5 pb-14 md:px-10 lg:grid-cols-[430px_minmax(0,1fr)] lg:px-14">
-        <ProductIntake
-          brief={brief}
-          error={shotlistError}
-          isGenerating={isGenerating}
-          onBriefChange={setBrief}
-          onGenerateShotlist={generateShotlist}
-        />
+      <section className="grid gap-8 px-5 py-8 md:px-10 lg:grid-cols-[420px_minmax(0,1fr)] lg:px-14">
         <div className="grid content-start gap-5">
-          <ShotlistWorkspace shotlist={shotlist} />
-          <IntegrationPanel
-            isCreatingVideo={isCreatingVideo}
-            isMiroConnected={isMiroConnected}
-            isRoutingToMiro={isRoutingToMiro}
+          <ProductIntake
+            brief={brief}
+            error={miroError}
+            isGenerating={isCreatingBoard}
+            onBriefChange={setBrief}
+            onCreateMiroBoard={() => createMiroBoard()}
+          />
+        </div>
+
+        <div className="grid content-start gap-5">
+          <MiroPanel
+            error={miroError}
+            isConnected={isMiroConnected}
+            isCreatingBoard={isCreatingBoard}
+            isCreatingShotlist={isCreatingShotlist}
             miroBoardUrl={miroBoardUrl}
-            miroError={miroError}
-            miroResult={miroResult}
+            onConnectMiro={openMiroAuth}
+            onCreateShotlist={createShotlistFromMiro}
             onMiroBoardUrlChange={setMiroBoardUrl}
+            onUseExistingBoard={() => createMiroBoard(miroBoardUrl)}
+            result={miroResult}
+            shotlistError={shotlistError}
+            showExistingBoardInput={showExistingBoardInput}
+          />
+
+          <ShotlistWorkspace
+            isCreatingVideo={isCreatingVideo}
+            isGeneratingImages={isGeneratingImages}
+            isLoading={isCreatingShotlist}
             onCreateVideo={createVideo}
-            onRouteToMiro={routeToMiro}
             shotlist={shotlist}
-            videoError={videoError}
-            videoResult={videoResult}
+          />
+
+          <VideoPanel
+            error={videoError}
+            isCreating={isCreatingVideo}
+            result={videoResult}
           />
         </div>
       </section>
     </main>
   );
-}
-
-function summarizePhotoForShotlist(url: string) {
-  if (url.startsWith("data:")) {
-    const mimeType = url.match(/^data:([^;,]+)/)?.[1] ?? "image";
-
-    return `${mimeType} uploaded by user`;
-  }
-
-  return url;
 }
