@@ -2,8 +2,6 @@
 
 AI-powered product video generator. Upload product photos, describe your concept, and KineticAI generates a complete shot-by-shot video draft — with optional music and a final high-resolution render.
 
-![Intake](docs/screenshots/intake.png)
-
 ## How it works
 
 1. **Intake** — enter your product name, concept, style, and target audience
@@ -12,11 +10,11 @@ AI-powered product video generator. Upload product photos, describe your concept
 4. **Video** — shots are rendered as video clips, merged, and scored with generated music
 5. **Final render** — optionally upgrade to Seedance for higher-fidelity output
 
-![Miro board](docs/screenshots/miro.png)
+![Miro board](docs/screenshots/miro.PNG)
 
-![Shot images](docs/screenshots/shotlist.png)
+![Shot images](docs/screenshots/shotlist.PNG)
 
-![Video panel](docs/screenshots/video.png)
+![Video panel](docs/screenshots/render.PNG)
 
 ## Tech stack
 
