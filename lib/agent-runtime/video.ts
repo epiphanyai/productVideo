@@ -2,6 +2,7 @@ import { fal } from "@fal-ai/client";
 import type { ProductPhoto, Shotlist, VideoJobResult } from "@/lib/workflow/types";
 
 const draftModel = "fal-ai/wan-i2v";
+const mergeModel = "fal-ai/ffmpeg-api/merge-videos";
 
 export async function createVideoFromShotlist(
   shotlist: Shotlist,
@@ -27,31 +28,74 @@ export async function createVideoFromShotlist(
 
   fal.config({ credentials });
 
-  const referenceImageUrl = await getFalImageUrl(referencePhoto);
-  const prompt = buildVideoPrompt(shotlist);
-  const result = await fal.subscribe(draftModel, {
+  const uploadedPhotos = new Map<string, string>();
+  const clips = await Promise.all(
+    shotlist.shots.map(async (shot, index) => {
+      const shotPhoto = findReferencePhoto({ ...shotlist, shots: [shot] }, photos) ?? referencePhoto;
+      const referenceImageUrl = await getCachedFalImageUrl(shotPhoto, uploadedPhotos);
+      const prompt = buildShotPrompt(shotlist, shot, index);
+      const result = await fal.subscribe(draftModel, {
+        input: {
+          image_url: referenceImageUrl,
+          prompt,
+          resolution: "480p",
+          aspect_ratio: "auto",
+          enable_prompt_expansion: true,
+          num_frames: 81
+        },
+        logs: true
+      });
+      const previewUrl = findVideoUrl(result.data);
+
+      if (!previewUrl) {
+        throw new Error(`fal completed shot ${index + 1} but did not return a video URL.`);
+      }
+
+      return {
+        id: result.requestId ?? `${jobId}-${shot.id}`,
+        title: shot.title,
+        durationSeconds: shot.durationSeconds,
+        previewUrl
+      };
+    })
+  );
+  const merged = await fal.subscribe(mergeModel, {
     input: {
-      image_url: referenceImageUrl,
-      prompt,
-      resolution: "480p",
-      aspect_ratio: "auto",
-      enable_prompt_expansion: true,
-      num_frames: 81
+      video_urls: clips.map((clip) => clip.previewUrl),
+      resolution: "landscape_16_9",
+      target_fps: 16
     },
     logs: true
   });
-  const previewUrl = findVideoUrl(result.data);
+  const previewUrl = findFileUrl(merged.data, "video") ?? findVideoUrl(merged.data);
 
   if (!previewUrl) {
-    throw new Error("fal completed the video job but did not return a video URL.");
+    throw new Error("fal completed the merged video job but did not return a video URL.");
   }
 
   return {
-    jobId: result.requestId ?? jobId,
+    jobId: merged.requestId ?? jobId,
     status: "created",
     previewUrl,
-    message: `Fal draft video created from ${shotlist.shots.length} shots and ${photos.length} product photos.`
+    targetDurationSeconds: shotlist.targetDurationSeconds,
+    message: `Fal draft video created from ${clips.length} merged shots.`
   };
+}
+
+function findFileUrl(value: unknown, key: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const file = (value as Record<string, unknown>)[key];
+
+  if (!file || typeof file !== "object" || Array.isArray(file)) {
+    return null;
+  }
+
+  const url = (file as Record<string, unknown>).url;
+
+  return typeof url === "string" ? url : null;
 }
 
 function findReferencePhoto(shotlist: Shotlist, photos: ProductPhoto[]) {
@@ -72,6 +116,19 @@ async function getFalImageUrl(photo: ProductPhoto) {
   });
 }
 
+async function getCachedFalImageUrl(photo: ProductPhoto, uploadedPhotos: Map<string, string>) {
+  const cachedUrl = uploadedPhotos.get(photo.id);
+
+  if (cachedUrl) {
+    return cachedUrl;
+  }
+
+  const url = await getFalImageUrl(photo);
+  uploadedPhotos.set(photo.id, url);
+
+  return url;
+}
+
 function dataUrlToBlob(dataUrl: string) {
   const match = dataUrl.match(/^data:([^;,]+)?(;base64)?,(.*)$/);
 
@@ -86,16 +143,15 @@ function dataUrlToBlob(dataUrl: string) {
   return new Blob([data], { type: contentType });
 }
 
-function buildVideoPrompt(shotlist: Shotlist) {
-  const shotDirections = shotlist.shots
-    .map((shot, index) => `${index + 1}. ${shot.title}: ${shot.prompt} Motion: ${shot.motion}. Framing: ${shot.framing}.`)
-    .join("\n");
-
+function buildShotPrompt(shotlist: Shotlist, shot: Shotlist["shots"][number], index: number) {
   return [
-    `Create a short product video for ${shotlist.productName}.`,
+    `Create shot ${index + 1} of ${shotlist.shots.length} for a product video about ${shotlist.productName}.`,
     `Concept: ${shotlist.concept}`,
-    "Follow this shot plan as one cohesive draft:",
-    shotDirections
+    `Shot title: ${shot.title}`,
+    `Shot prompt: ${shot.prompt}`,
+    `Motion: ${shot.motion}`,
+    `Framing: ${shot.framing}`,
+    "Generate only this shot as a clean, usable product-video clip."
   ].join("\n");
 }
 
