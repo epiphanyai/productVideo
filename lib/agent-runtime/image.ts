@@ -14,6 +14,7 @@ type GenerateShotImagesOptions = {
 type GenerateShotImageOptions = GenerateShotImagesOptions & {
   shotlist: Shotlist;
   shotId: string;
+  imagePrompt?: string;
 };
 
 export async function generateStartingImagesForShotlist(
@@ -89,7 +90,7 @@ export async function generateStartingImageForShot(
     return {
       shot: {
         ...shot,
-        imagePrompt: buildImagePrompt(options.shotlist, shot, shotIndex),
+        imagePrompt: options.imagePrompt?.trim() || buildImagePrompt(options.shotlist, shot, shotIndex),
         sourceImageUrls,
         startImageUrl: sourceImageUrls[0]
       },
@@ -104,7 +105,7 @@ export async function generateStartingImageForShot(
     return {
       shot: {
         ...shot,
-        imagePrompt: buildImagePrompt(options.shotlist, shot, shotIndex),
+        imagePrompt: options.imagePrompt?.trim() || buildImagePrompt(options.shotlist, shot, shotIndex),
         sourceImageUrls: []
       },
       status: "mocked",
@@ -113,7 +114,13 @@ export async function generateStartingImageForShot(
   }
 
   return {
-    shot: await generateStartingImageForNormalizedReferences(options.shotlist, options.shotId, references, shotIndex),
+    shot: await generateStartingImageForNormalizedReferences(
+      options.shotlist,
+      options.shotId,
+      references,
+      shotIndex,
+      options.imagePrompt
+    ),
     status: "created",
     message: `Fal generated a starting image for ${shot.title}.`
   };
@@ -197,7 +204,8 @@ async function generateStartingImageForNormalizedReferences(
   shotlist: Shotlist,
   shotId: string,
   references: string[],
-  shotIndex: number
+  shotIndex: number,
+  imagePromptOverride?: string
 ) {
   const shot = shotlist.shots.find((candidate) => candidate.id === shotId);
 
@@ -206,8 +214,9 @@ async function generateStartingImageForNormalizedReferences(
   }
 
   const sourceImageUrls = selectShotReferences(shot, references);
-  const imagePrompt = buildImagePrompt(shotlist, shot, shotIndex);
+  const imagePrompt = imagePromptOverride?.trim() || shot.imagePrompt?.trim() || buildImagePrompt(shotlist, shot, shotIndex);
   const failures: string[] = [];
+  const needsMultiAngleReference = shouldUseMultiAngleReferences(shot);
 
   for (const sourceImageUrl of sourceImageUrls) {
     try {
@@ -217,7 +226,17 @@ async function generateStartingImageForNormalizedReferences(
         aspect_ratio: "16:9",
         num_images: 1,
         output_format: "png",
-        resolution: "1K"
+        resolution: "1K",
+        ...(needsMultiAngleReference && sourceImageUrls.length > 1
+          ? {
+              elements: [
+                {
+                  frontal_image_url: sourceImageUrl,
+                  reference_image_urls: sourceImageUrls.filter((url) => url !== sourceImageUrl).slice(0, 3)
+                }
+              ]
+            }
+          : {})
       };
       const result = await fal.subscribe(imageModel as Parameters<typeof fal.subscribe>[0], {
         input: payload,
@@ -245,6 +264,12 @@ async function generateStartingImageForNormalizedReferences(
     `Unable to generate an image for ${shot.title}. Tried ${sourceImageUrls.length} reference image${
       sourceImageUrls.length === 1 ? "" : "s"
     }. Last error: ${failures.at(-1) ?? "unknown"}`
+  );
+}
+
+function shouldUseMultiAngleReferences(shot: Shot) {
+  return /\b(turn|turnaround|rotate|rotation|spin|spinning|orbit|360|three-sixty|all angles|multi-angle|multi angle)\b/i.test(
+    [shot.title, shot.prompt, shot.motion, shot.framing].join(" ")
   );
 }
 

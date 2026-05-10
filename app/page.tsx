@@ -206,7 +206,8 @@ export default function Home() {
             shotlist: baseShotlist,
             shotId: shot.id,
             photos: brief.photos,
-            miroImageUrls
+            miroImageUrls,
+            imagePrompt: shot.imagePrompt
           })
         });
         const payload = (await response.json()) as {
@@ -257,6 +258,100 @@ export default function Home() {
 
     if (runId === imageGenerationRunId.current) {
       setIsGeneratingImages(false);
+    }
+  }
+
+  async function regenerateShotImage(shotId: string, imagePrompt: string) {
+    if (!shotlist) {
+      return;
+    }
+
+    const boardImageUrls = imageShotlistResult?.boardContext.imageUrls ?? [];
+    const requestShotlist = {
+      ...shotlist,
+      shots: shotlist.shots.map((shot) =>
+        shot.id === shotId
+          ? {
+              ...shot,
+              imagePrompt
+            }
+          : shot
+      )
+    };
+
+    setShotlist((current) =>
+      current
+        ? {
+            ...current,
+            shots: current.shots.map((shot) =>
+              shot.id === shotId
+                ? {
+                    ...shot,
+                    imagePrompt,
+                    imageStatus: "running",
+                    imageError: undefined
+                  }
+                : shot
+            )
+          }
+        : current
+    );
+
+    try {
+      const response = await fetch("/api/shotlist/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shotlist: requestShotlist,
+          shotId,
+          photos: brief.photos,
+          miroImageUrls: boardImageUrls,
+          imagePrompt
+        })
+      });
+      const payload = (await response.json()) as {
+        result?: { shot: Shotlist["shots"][number]; status: "mocked" | "created"; message: string };
+        error?: string;
+      };
+
+      if (!response.ok || !payload.result) {
+        throw new Error(payload.error ?? "Unable to regenerate starting image.");
+      }
+
+      setShotlist((current) =>
+        current
+          ? {
+              ...current,
+              shots: current.shots.map((shot) =>
+                shot.id === shotId
+                  ? {
+                      ...payload.result!.shot,
+                      imageStatus: payload.result!.shot.startImageUrl ? "ready" : "idle"
+                    }
+                  : shot
+              )
+            }
+          : current
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to regenerate starting image.";
+
+      setShotlist((current) =>
+        current
+          ? {
+              ...current,
+              shots: current.shots.map((shot) =>
+                shot.id === shotId
+                  ? {
+                      ...shot,
+                      imageStatus: "error",
+                      imageError: message
+                    }
+                  : shot
+              )
+            }
+          : current
+      );
     }
   }
 
@@ -351,6 +446,7 @@ export default function Home() {
                 isGeneratingImages={isGeneratingImages}
                 isLoading={isCreatingShotlist}
                 onCreateVideo={createVideo}
+                onRegenerateShotImage={regenerateShotImage}
                 shotlist={shotlist}
               />
             </div>
