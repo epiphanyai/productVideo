@@ -29,6 +29,13 @@ export function ShotlistWorkspace({ shotlist }: ShotlistWorkspaceProps) {
         </div>
         <h2 className="mt-1 text-xl font-bold text-[#1d2528]">{shotlist.productName} Shotlist</h2>
         <p className="mt-2 text-sm leading-6 text-[#647174]">{shotlist.concept}</p>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-[#647174]">
+          <span className="rounded-full bg-[#eef4ef] px-3 py-1">{shotlist.targetDurationSeconds}s target</span>
+          <span className="rounded-full bg-[#eef4ef] px-3 py-1">{shotlist.shots.length} shots</span>
+          <span className="rounded-full bg-[#eef4ef] px-3 py-1">
+            {shotlist.visualFeatureCount} visual features
+          </span>
+        </div>
       </div>
       <div className="grid gap-3 p-5">
         {shotlist.shots.map((shot, index) => (

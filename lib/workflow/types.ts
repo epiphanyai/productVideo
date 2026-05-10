@@ -31,6 +31,8 @@ export type Shotlist = {
   productName: string;
   style: VideoStyleId;
   concept: string;
+  targetDurationSeconds: number;
+  visualFeatureCount: number;
   shots: Shot[];
   createdAt: string;
 };
@@ -48,7 +50,16 @@ export type MiroBoardResult = {
 
 export type VideoJobResult = {
   jobId: string;
-  status: "queued" | "mocked";
+  status: "created" | "queued" | "mocked";
   previewUrl: string | null;
+  clips?: VideoClipResult[];
+  targetDurationSeconds?: number;
   message: string;
+};
+
+export type VideoClipResult = {
+  id: string;
+  title: string;
+  durationSeconds: number;
+  previewUrl: string;
 };
