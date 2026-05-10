@@ -4,7 +4,7 @@ import { configureFal, uploadBlobToFalStorage } from "@/lib/agent-runtime/fal-as
 import type { ProductPhoto, Shot, Shotlist } from "@/lib/workflow/types";
 
 const imageModel = "fal-ai/kling-image/v3/image-to-image";
-const maxReferenceImages = 8;
+const maxReferenceImages = 1;
 
 type GenerateShotImagesOptions = {
   photos: ProductPhoto[];
@@ -15,6 +15,7 @@ type GenerateShotImageOptions = GenerateShotImagesOptions & {
   shotlist: Shotlist;
   shotId: string;
   imagePrompt?: string;
+  imageKind?: "start" | "end";
 };
 
 export async function generateStartingImagesForShotlist(
@@ -69,12 +70,17 @@ export async function generateStartingImageForShot(
   options: GenerateShotImageOptions
 ): Promise<{ shot: Shot; status: "mocked" | "created"; message: string }> {
   const shot = options.shotlist.shots.find((candidate) => candidate.id === options.shotId);
+  const imageKind = options.imageKind ?? "start";
 
   if (!shot) {
     throw new Error(`Shot ${options.shotId} was not found.`);
   }
 
-  const referenceValues = [...options.photos.map((photo) => photo.url), ...options.miroImageUrls];
+  const referenceValues = [
+    ...(imageKind === "end" && shot.startImageUrl ? [shot.startImageUrl] : []),
+    ...options.photos.map((photo) => photo.url),
+    ...options.miroImageUrls
+  ];
   const shotIndex = options.shotlist.shots.findIndex((candidate) => candidate.id === options.shotId);
 
   try {
@@ -90,9 +96,17 @@ export async function generateStartingImageForShot(
     return {
       shot: {
         ...shot,
-        imagePrompt: options.imagePrompt?.trim() || buildImagePrompt(options.shotlist, shot, shotIndex),
+        ...(imageKind === "end"
+          ? {
+              endImagePrompt: options.imagePrompt?.trim() || buildEndImagePrompt(options.shotlist, shot, shotIndex),
+              endImageUrl: sourceImageUrls[0],
+              useEndImage: true
+            }
+          : {
+              imagePrompt: options.imagePrompt?.trim() || buildImagePrompt(options.shotlist, shot, shotIndex),
+              startImageUrl: sourceImageUrls[0]
+            }),
         sourceImageUrls,
-        startImageUrl: sourceImageUrls[0]
       },
       status: "mocked",
       message: "FAL_API_KEY is not configured. Starting-image generation stayed in mock mode."
@@ -105,7 +119,14 @@ export async function generateStartingImageForShot(
     return {
       shot: {
         ...shot,
-        imagePrompt: options.imagePrompt?.trim() || buildImagePrompt(options.shotlist, shot, shotIndex),
+        ...(imageKind === "end"
+          ? {
+              endImagePrompt: options.imagePrompt?.trim() || buildEndImagePrompt(options.shotlist, shot, shotIndex),
+              useEndImage: true
+            }
+          : {
+              imagePrompt: options.imagePrompt?.trim() || buildImagePrompt(options.shotlist, shot, shotIndex)
+            }),
         sourceImageUrls: []
       },
       status: "mocked",
@@ -119,7 +140,8 @@ export async function generateStartingImageForShot(
       options.shotId,
       references,
       shotIndex,
-      options.imagePrompt
+      options.imagePrompt,
+      imageKind
     ),
     status: "created",
     message: `Fal generated a starting image for ${shot.title}.`
@@ -205,7 +227,8 @@ async function generateStartingImageForNormalizedReferences(
   shotId: string,
   references: string[],
   shotIndex: number,
-  imagePromptOverride?: string
+  imagePromptOverride?: string,
+  imageKind: "start" | "end" = "start"
 ) {
   const shot = shotlist.shots.find((candidate) => candidate.id === shotId);
 
@@ -214,9 +237,12 @@ async function generateStartingImageForNormalizedReferences(
   }
 
   const sourceImageUrls = selectShotReferences(shot, references);
-  const imagePrompt = imagePromptOverride?.trim() || shot.imagePrompt?.trim() || buildImagePrompt(shotlist, shot, shotIndex);
+  const imagePrompt =
+    imagePromptOverride?.trim() ||
+    (imageKind === "end"
+      ? shot.endImagePrompt?.trim() || buildEndImagePrompt(shotlist, shot, shotIndex)
+      : shot.imagePrompt?.trim() || buildImagePrompt(shotlist, shot, shotIndex));
   const failures: string[] = [];
-  const needsMultiAngleReference = shouldUseMultiAngleReferences(shot);
 
   for (const sourceImageUrl of sourceImageUrls) {
     try {
@@ -226,17 +252,7 @@ async function generateStartingImageForNormalizedReferences(
         aspect_ratio: "16:9",
         num_images: 1,
         output_format: "png",
-        resolution: "1K",
-        ...(needsMultiAngleReference && sourceImageUrls.length > 1
-          ? {
-              elements: [
-                {
-                  frontal_image_url: sourceImageUrl,
-                  reference_image_urls: sourceImageUrls.filter((url) => url !== sourceImageUrl).slice(0, 3)
-                }
-              ]
-            }
-          : {})
+        resolution: "1K"
       };
       const result = await fal.subscribe(imageModel as Parameters<typeof fal.subscribe>[0], {
         input: payload,
@@ -251,9 +267,17 @@ async function generateStartingImageForNormalizedReferences(
 
       return {
         ...shot,
-        imagePrompt,
+        ...(imageKind === "end"
+          ? {
+              endImagePrompt: imagePrompt,
+              endImageUrl: startImageUrl,
+              useEndImage: true
+            }
+          : {
+              imagePrompt,
+              startImageUrl
+            }),
         sourceImageUrls,
-        startImageUrl
       };
     } catch (error) {
       failures.push(formatFalImageError(error));
@@ -261,15 +285,9 @@ async function generateStartingImageForNormalizedReferences(
   }
 
   throw new Error(
-    `Unable to generate an image for ${shot.title}. Tried ${sourceImageUrls.length} reference image${
+    `Unable to generate a ${imageKind} image for ${shot.title}. Tried ${sourceImageUrls.length} reference image${
       sourceImageUrls.length === 1 ? "" : "s"
     }. Last error: ${failures.at(-1) ?? "unknown"}`
-  );
-}
-
-function shouldUseMultiAngleReferences(shot: Shot) {
-  return /\b(turn|turnaround|rotate|rotation|spin|spinning|orbit|360|three-sixty|all angles|multi-angle|multi angle)\b/i.test(
-    [shot.title, shot.prompt, shot.motion, shot.framing].join(" ")
   );
 }
 
@@ -314,6 +332,19 @@ function buildImagePrompt(shotlist: Shotlist, shot: Shot, index: number) {
     `Framing: ${shot.framing}`,
     `Motion cue to set up: ${shot.motion}`,
     "Generate a clean 16:9 product-video starting image that can be used as an image-to-video reference."
+  ].join("\n");
+}
+
+function buildEndImagePrompt(shotlist: Shotlist, shot: Shot, index: number) {
+  return [
+    `Create the final frame for shot ${index + 1} of ${shotlist.shots.length} in a product video for ${shotlist.productName}.`,
+    `Overall concept: ${shotlist.concept}`,
+    `Shot title: ${shot.title}`,
+    `Visual action: ${shot.prompt}`,
+    `Framing: ${shot.framing}`,
+    `Motion to complete: ${shot.motion}`,
+    "Show the product after the rotation, orbit, or turn has completed. Preserve hidden markings, face details, eyes, logos, and character features from the product reference.",
+    "Generate a clean 16:9 product-video ending image that can be used as an image-to-video end frame."
   ].join("\n");
 }
 

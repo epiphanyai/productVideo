@@ -32,7 +32,7 @@ export class MiroOAuthProvider implements OAuthClientProvider {
 
   get clientMetadata(): OAuthClientMetadata {
     return {
-      client_name: "Product Video Agent Runtime",
+      client_name: "kineticAI",
       grant_types: ["authorization_code", "refresh_token"],
       redirect_uris: [this._redirectUrl],
       response_types: ["code"],

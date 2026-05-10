@@ -28,7 +28,7 @@ const boardShotSchema = z.object({
 const boardShotlistSchema = z.object({
   productName: z.string(),
   concept: z.string(),
-  shots: z.array(boardShotSchema).min(3).max(12)
+  shots: z.array(boardShotSchema).min(3).max(40)
 });
 
 const boardInterpreterAgent = new Agent({
@@ -37,8 +37,11 @@ const boardInterpreterAgent = new Agent({
     "Interpret a Miro board as the source of truth for a product video shotlist.",
     "Use all board text, document content, item metadata, and image references provided.",
     "When items are named or titled like shot_1_title, shot_1, and shot_1_notes, treat those items as one scene: title text is the scene title, the sticky is a short visual cue, and notes below it contain the full prompt, framing, motion, and assets.",
+    "When the board contains a flowchart plus a detailed shot notes document, treat the flowchart node text as a short visual cue and combine it with the matching numbered notes before writing the final shot fields.",
     "Prefer the product video shotlist frame and its child or nearby items over unrelated board content when the board contains multiple frames.",
     "Preserve collaborator intent over the original brief when the board differs.",
+    "Output one shot for every explicit scene, numbered flowchart node, shot sticky, card, or shot note found on the board. Do not drop scenes that were added or renamed on the board.",
+    "Do not leave final prompts in terse shorthand. Expand terse collaborator notes into clear image-to-video instructions using nearby notes, documents, image references, and the product brief.",
     "Return only structured output matching the schema.",
     "Write image-to-video-ready prompts that describe the first frame, product framing, and action."
   ].join(" "),
@@ -67,7 +70,7 @@ export async function createImageShotlistFromMiro({
   if (!normalizedBoardUrl) {
     throw new Error("Miro board URL is required.");
   }
-  const boardContext = await runStage("Miro board readback", () => readMiroBoardContext(normalizedBoardUrl));
+  const boardContext = await runStage("Miro board readback", () => readMiroBoardContext(toWholeMiroBoardUrl(normalizedBoardUrl)));
   const shotlist = await runStage("Miro board interpretation", () => interpretMiroBoardAsShotlist(brief, boardContext));
 
   return {
@@ -76,6 +79,8 @@ export async function createImageShotlistFromMiro({
       shots: shotlist.shots.map((shot, index) => ({
         ...shot,
         imagePrompt: buildStartingImagePrompt(shotlist, shot, index),
+        endImagePrompt: shouldUseEndImageForShot(shot) ? buildEndingImagePrompt(shotlist, shot, index) : undefined,
+        useEndImage: shouldUseEndImageForShot(shot),
         sourceImageUrls: Array.from(new Set([...photos.map((photo) => photo.url), ...boardContext.imageUrls]))
       }))
     },
@@ -137,6 +142,7 @@ export async function routeShotlistToMiro(
     if (!boardUrl) {
       throw new Error(`Miro board_create did not return a board URL: ${truncate(boardText, 500)}`);
     }
+    const wholeBoardUrl = toWholeMiroBoardUrl(boardUrl);
 
     if (tools.includes("layout_get_dsl")) {
       await server.callTool("layout_get_dsl", {});
@@ -147,8 +153,8 @@ export async function routeShotlistToMiro(
     const itemUrls = findMiroItemUrls(layoutText);
 
     return {
-      boardId: extractBoardId(boardUrl) ?? `mcp-${shotlist.id}`,
-      boardUrl,
+      boardId: extractBoardId(wholeBoardUrl) ?? `mcp-${shotlist.id}`,
+      boardUrl: wholeBoardUrl,
       provider: "miro-mcp",
       status: "created",
       itemCount: shotlist.shots.length * 2,
@@ -193,17 +199,23 @@ async function routeShotlistWithCurrentMiroTools(
     });
     const diagramText = getMcpText(diagramResult);
     assertMiroToolSuccess(diagramResult, "diagram_create");
-    const resultBoardUrl = findMiroBoardUrl(diagramText) ?? boardUrl;
+    const resultBoardUrl = toWholeMiroBoardUrl(findMiroBoardUrl(diagramText) ?? boardUrl);
+    const detailDocResult = tools.includes("doc_create")
+      ? await createMiroDetailDocSafely(server, shotlist, resultBoardUrl, placement.x + 900, placement.y)
+      : null;
+    const detailDocText = detailDocResult ? getMcpText(detailDocResult) : "";
 
     return {
       boardId: extractBoardId(resultBoardUrl) ?? `mcp-${shotlist.id}`,
       boardUrl: resultBoardUrl,
       provider: "miro-mcp",
       status: "created",
-      itemCount: shotlist.shots.length,
-      itemIds: Array.from(new Set(findMiroItemUrls(diagramText))),
+      itemCount: shotlist.shots.length + (detailDocResult ? 1 : 0),
+      itemIds: Array.from(new Set([...findMiroItemUrls(diagramText), ...findMiroItemUrls(detailDocText)])),
       tools,
-      message: `Created a linked Miro shot flow for ${shotlist.shots.length} shots.`
+      message: `Created a linked Miro shot flow for ${shotlist.shots.length} shots${
+        detailDocResult ? " with detailed shot notes." : "."
+      }`
     };
   }
 
@@ -289,14 +301,25 @@ async function readMiroBoardContext(boardUrl: string): Promise<MiroBoardContext>
     const tools = await listMiroMcpToolNames(server);
     const raw: unknown[] = [];
 
-    if (tools.includes("board_list_items")) {
+    if (tools.includes("context_get")) {
       raw.push(
-        await callMiroToolSafely(server, "board_list_items", {
-          item_type: null,
-          limit: 100,
+        await callMiroToolSafely(server, "context_get", {
           miro_url: boardUrl
         })
       );
+    }
+
+    if (tools.includes("context_explore")) {
+      raw.push(
+        await callMiroToolSafely(server, "context_explore", {
+          miro_url: boardUrl
+        })
+      );
+    }
+
+    if (tools.includes("board_list_items")) {
+      raw.push(...(await listMiroBoardItems(server, boardUrl)));
+      raw.push(...(await listMiroBoardItemsByType(server, boardUrl)));
     }
 
     if (tools.includes("layout_read")) {
@@ -308,36 +331,49 @@ async function readMiroBoardContext(boardUrl: string): Promise<MiroBoardContext>
     }
 
     const itemCandidates = collectBoardItems(raw);
-    const itemIds = itemCandidates.map((item) => item.id).filter((id): id is string => Boolean(id));
+    const itemUrls = itemCandidates.flatMap((item) => getMiroItemContextUrls(boardUrl, item));
+    const docItemUrls = itemCandidates
+      .filter((item) => isMiroItemType(item, ["document", "doc_format"]))
+      .flatMap((item) => getMiroItemContextUrls(boardUrl, item));
+    const imageItemUrls = itemCandidates
+      .filter((item) => isMiroItemType(item, ["image"]))
+      .flatMap((item) => getMiroItemContextUrls(boardUrl, item));
 
     if (tools.includes("doc_get")) {
-      for (const itemId of itemIds.slice(0, 20)) {
+      for (const itemUrl of docItemUrls.slice(0, 30)) {
         raw.push(
           await callMiroToolSafely(server, "doc_get", {
-            item_id: itemId,
-            miro_url: boardUrl
+            miro_url: itemUrl
+          })
+        );
+      }
+    }
+
+    if (tools.includes("context_get")) {
+      for (const itemUrl of itemUrls.slice(0, 250)) {
+        raw.push(
+          await callMiroToolSafely(server, "context_get", {
+            miro_url: itemUrl
           })
         );
       }
     }
 
     if (tools.includes("image_get_url")) {
-      for (const itemId of itemIds.slice(0, 30)) {
+      for (const itemUrl of imageItemUrls.slice(0, 40)) {
         raw.push(
           await callMiroToolSafely(server, "image_get_url", {
-            item_id: itemId,
-            miro_url: boardUrl
+            miro_url: itemUrl
           })
         );
       }
     }
 
     if (tools.includes("image_get_data")) {
-      for (const itemId of itemIds.slice(0, 10)) {
+      for (const itemUrl of imageItemUrls.slice(0, 12)) {
         raw.push(
           await callMiroToolSafely(server, "image_get_data", {
-            item_id: itemId,
-            miro_url: boardUrl
+            miro_url: itemUrl
           })
         );
       }
@@ -384,6 +420,28 @@ async function createMiroLayoutWithFallback(
   }
 }
 
+async function createMiroDetailDocSafely(
+  server: NonNullable<ReturnType<typeof createMiroMcpServer>>,
+  shotlist: Shotlist,
+  boardUrl: string,
+  x: number,
+  y: number
+) {
+  try {
+    const result = await server.callTool("doc_create", {
+      content: createShotlistMarkdown(shotlist),
+      miro_url: boardUrl,
+      x,
+      y
+    });
+
+    assertMiroToolSuccess(result, "doc_create shot notes");
+    return result;
+  } catch {
+    return null;
+  }
+}
+
 async function interpretMiroBoardAsShotlist(brief: ProductBrief, boardContext: MiroBoardContext): Promise<Shotlist> {
   if (!process.env.OPENAI_API_KEY?.trim()) {
     return createMockShotlistFromBoard(brief, boardContext);
@@ -404,10 +462,11 @@ async function interpretMiroBoardAsShotlist(brief: ProductBrief, boardContext: M
           url: boardContext.boardUrl,
           tools: boardContext.tools,
           relationshipHint:
-            "Generated product-video boards group each shot with shot_N_title, shot_N sticky, shot_N_notes, and flow_N_to_N+1 items inside shotlist_frame. Keep each title, sticky cue, and note block together when normalizing shots.",
-          text: truncate(boardContext.text, 20_000),
+            "Generated product-video boards group each shot with shot_N_title, shot_N sticky, shot_N_notes, and flow_N_to_N+1 items inside shotlist_frame. On diagram-only boards, flowchart node N is a caveman-style cue and the Shot Notes document contains matching detailed notes for shot N. User-added flowchart nodes, stickies, cards, text blocks, and document sections are authoritative scenes. Keep each title, cue, and note block together when normalizing shots.",
+          itemDigest: buildBoardItemDigest(boardContext.items),
+          text: truncate(boardContext.text, 120_000),
           imageUrls: boardContext.imageUrls,
-          items: boardContext.items.slice(0, 100)
+          items: boardContext.items.slice(0, 500)
         }
       },
       null,
@@ -566,9 +625,8 @@ function createShotStickyCue(shot: Shotlist["shots"][number]) {
     summarizeCue(shot.framing),
     summarizeCue(shot.motion)
   ].filter(Boolean);
-  const cue = cueParts.length ? cueParts.join("\n") : shot.title;
 
-  return truncate(cue, 72);
+  return cueParts.length ? cueParts.join("\n") : shot.title;
 }
 
 function summarizeCue(value: string) {
@@ -578,7 +636,7 @@ function summarizeCue(value: string) {
     .replace(/\s+/g, " ")
     .trim();
 
-  return truncate(normalized || value.trim(), 34);
+  return normalized || value.trim();
 }
 
 function createThinFlowArrowDsl(shotNumber: number, startX: number, endX: number) {
@@ -663,18 +721,28 @@ function createShotlistMarkdown(shotlist: Shotlist) {
 function createShotlistFlowchartDsl(shotlist: Shotlist) {
   const nodes = shotlist.shots.map((shot, index) => {
     const id = `n${index + 1}`;
-    const label = sanitizeMiroDiagramLabel([
-      `${index + 1}. ${shot.title}`,
-      `${shot.durationSeconds}s - ${shot.framing}`,
-      shot.motion,
-      truncate(shot.prompt, 160)
-    ].join(" | "));
+    const label = formatMiroDiagramLabel([`${index + 1}. ${shot.title}`, ...createCavemanFlowCue(shot)]);
 
     return `${id} ${label} flowchart-process`;
   });
   const links = shotlist.shots.slice(0, -1).map((_, index) => `c n${index + 1} next n${index + 2}`);
 
-  return ["graphdir LR", ...nodes, ...links].join("\n");
+  return ["graphdir TB", ...nodes, ...links].join("\n");
+}
+
+function createCavemanFlowCue(shot: Shotlist["shots"][number]) {
+  return [
+    simplifyFlowCue(shot.framing),
+    simplifyFlowCue(shot.motion)
+  ].filter(Boolean);
+}
+
+function simplifyFlowCue(value: string) {
+  return value
+    .replace(/\b(the|a|an|with|and|that|this|product|camera|shot|frame|framing|motion|smooth|controlled)\b/gi, " ")
+    .replace(/[.;:]+/g, ",")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function getMcpText(result: { type: string; text?: string }[] | unknown) {
@@ -768,10 +836,182 @@ async function callMiroToolSafely(
   }
 }
 
+async function listMiroBoardItems(
+  server: NonNullable<ReturnType<typeof createMiroMcpServer>>,
+  boardUrl: string
+) {
+  const results: unknown[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < 5; page += 1) {
+    const result = await callMiroToolSafely(server, "board_list_items", {
+      cursor,
+      item_type: null,
+      limit: 1000,
+      miro_url: boardUrl
+    });
+    results.push(result);
+    cursor = findNextCursor(result);
+
+    if (!cursor) {
+      break;
+    }
+  }
+
+  return results;
+}
+
+async function listMiroBoardItemsByType(
+  server: NonNullable<ReturnType<typeof createMiroMcpServer>>,
+  boardUrl: string
+) {
+  const itemTypes = [
+    "app_card",
+    "card",
+    "data_table_format",
+    "document",
+    "doc_format",
+    "embed",
+    "frame",
+    "image",
+    "preview",
+    "shape",
+    "sticky_note",
+    "text"
+  ];
+  const results: unknown[] = [];
+
+  for (const itemType of itemTypes) {
+    results.push(
+      ...(await listMiroBoardItemsPageSet(server, boardUrl, {
+        item_type: itemType,
+        limit: 1000
+      }))
+    );
+  }
+
+  return results;
+}
+
+async function listMiroBoardItemsPageSet(
+  server: NonNullable<ReturnType<typeof createMiroMcpServer>>,
+  boardUrl: string,
+  args: { item_type: string | null; limit: number }
+) {
+  const results: unknown[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < 5; page += 1) {
+    const result = await callMiroToolSafely(server, "board_list_items", {
+      cursor,
+      ...args,
+      miro_url: boardUrl
+    });
+    results.push(result);
+    cursor = findNextCursor(result);
+
+    if (!cursor) {
+      break;
+    }
+  }
+
+  return results;
+}
+
+function findNextCursor(result: unknown) {
+  const values = collectObjects(parseMcpValue(result));
+  const cursorFields = ["cursor", "nextCursor", "next_cursor", "nextPageCursor", "next_page_cursor"];
+
+  for (const value of values) {
+    for (const field of cursorFields) {
+      const cursor = stringField(value, field);
+      if (cursor) {
+        return cursor;
+      }
+    }
+  }
+
+  return null;
+}
+
+function getMiroItemContextUrls(boardUrl: string, item: MiroBoardContextItem) {
+  const urls = new Set<string>();
+
+  if (item.url?.includes("miro.com/app/board/")) {
+    urls.add(item.url);
+  }
+
+  if (item.id) {
+    const itemUrl = createMiroItemUrl(boardUrl, item.id);
+    if (itemUrl) {
+      urls.add(itemUrl);
+    }
+  }
+
+  return Array.from(urls);
+}
+
+function createMiroItemUrl(boardUrl: string, itemId: string) {
+  try {
+    const url = new URL(boardUrl);
+    url.searchParams.set("moveToWidget", itemId);
+
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function isMiroItemType(item: MiroBoardContextItem, types: string[]) {
+  const itemType = item.type?.toLowerCase();
+
+  return Boolean(itemType && types.includes(itemType));
+}
+
+function buildBoardItemDigest(items: MiroBoardContextItem[]) {
+  return items
+    .slice(0, 500)
+    .map((item, index) => {
+      const position = getItemPositionSummary(item.metadata);
+      const content = truncate(cleanBoardText(item.content ?? ""), 700);
+      const title = cleanBoardText(item.title ?? "");
+
+      return [
+        `#${index + 1}`,
+        item.type ? `type=${item.type}` : "",
+        item.id ? `id=${item.id}` : "",
+        title ? `title=${title}` : "",
+        position,
+        content ? `content=${content}` : ""
+      ]
+        .filter(Boolean)
+        .join(" | ");
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function getItemPositionSummary(metadata: Record<string, unknown> | undefined) {
+  if (!metadata) {
+    return "";
+  }
+
+  const x = numericField(metadata, "x") ?? numericField(metadata, "originX");
+  const y = numericField(metadata, "y") ?? numericField(metadata, "originY");
+  const parentId = stringField(metadata, "parent_id") ?? stringField(metadata, "parentId");
+  const parts = [
+    typeof x === "number" ? `x=${Math.round(x)}` : "",
+    typeof y === "number" ? `y=${Math.round(y)}` : "",
+    parentId ? `parent=${parentId}` : ""
+  ].filter(Boolean);
+
+  return parts.length ? `position=${parts.join(",")}` : "";
+}
+
 function collectBoardItems(rawResults: unknown[]): MiroBoardContextItem[] {
   const values = rawResults.flatMap((result) => collectObjects(parseMcpValue(result)));
   const itemLikeValues = values.filter((value) => {
-    const type = stringField(value, "type") ?? stringField(value, "itemType");
+    const type = getBoardItemType(value);
     const id = stringField(value, "id") ?? stringField(value, "item_id");
     const content = getBoardItemContent(value);
     const url = stringField(value, "url");
@@ -788,8 +1028,8 @@ function collectBoardItems(rawResults: unknown[]): MiroBoardContextItem[] {
   return itemLikeValues
     .map((value, index) => ({
       id: stringField(value, "id") ?? stringField(value, "item_id") ?? `item-${index + 1}`,
-      type: stringField(value, "type") ?? stringField(value, "itemType"),
-      title: stringField(value, "title") ?? stringField(value, "name"),
+      type: getBoardItemType(value),
+      title: cleanBoardText(stringField(value, "title") ?? stringField(value, "name") ?? ""),
       content: getBoardItemContent(value),
       url: stringField(value, "url"),
       imageUrl: extractImageUrls(JSON.stringify(value)).at(0),
@@ -804,6 +1044,15 @@ function collectBoardItems(rawResults: unknown[]): MiroBoardContextItem[] {
       seen.add(key);
       return true;
     });
+}
+
+function getBoardItemType(value: Record<string, unknown>) {
+  return (
+    stringField(value, "type") ??
+    stringField(value, "itemType") ??
+    stringField(value, "item_type") ??
+    stringField(value, "kind")
+  );
 }
 
 function parseMcpValue(result: unknown): unknown {
@@ -844,18 +1093,23 @@ function collectObjects(value: unknown): Record<string, unknown>[] {
 }
 
 function getBoardItemContent(value: Record<string, unknown>) {
-  const fields = ["content", "text", "description", "plainText", "markdown", "data"];
+  const fields = ["content", "text", "description", "plainText", "plain_text", "markdown", "html", "data"];
 
   for (const field of fields) {
     const direct = value[field];
     if (typeof direct === "string" && direct.trim()) {
-      return direct.trim();
+      return cleanBoardText(direct);
     }
 
     if (direct && typeof direct === "object" && !Array.isArray(direct)) {
-      const nested = stringField(direct as Record<string, unknown>, "content") ?? stringField(direct as Record<string, unknown>, "text");
+      const nested =
+        stringField(direct as Record<string, unknown>, "content") ??
+        stringField(direct as Record<string, unknown>, "text") ??
+        stringField(direct as Record<string, unknown>, "plainText") ??
+        stringField(direct as Record<string, unknown>, "plain_text") ??
+        stringField(direct as Record<string, unknown>, "html");
       if (nested) {
-        return nested;
+        return cleanBoardText(nested);
       }
     }
   }
@@ -867,6 +1121,28 @@ function stringField(value: Record<string, unknown>, field: string) {
   const fieldValue = value[field];
 
   return typeof fieldValue === "string" && fieldValue.trim() ? fieldValue.trim() : undefined;
+}
+
+function numericField(value: Record<string, unknown>, field: string) {
+  const fieldValue = value[field];
+
+  return typeof fieldValue === "number" && Number.isFinite(fieldValue) ? fieldValue : undefined;
+}
+
+function cleanBoardText(value: string) {
+  return value
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\r?\n\s*\r?\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
 }
 
 function extractImageUrls(value: string) {
@@ -899,10 +1175,18 @@ function normalizeMiroBoardUrl(value: string | undefined) {
       throw new Error("Invalid Miro board URL.");
     }
 
-    return url.toString();
+    return toWholeMiroBoardUrl(url.toString());
   } catch {
     throw new Error("Paste a valid Miro board URL that starts with https://miro.com/app/board/.");
   }
+}
+
+function toWholeMiroBoardUrl(boardUrl: string) {
+  const url = new URL(boardUrl);
+  url.searchParams.delete("moveToWidget");
+  url.searchParams.delete("focusWidget");
+
+  return url.toString();
 }
 
 function toTitle(value: string, index: number) {
@@ -926,13 +1210,18 @@ function escapeDsl(value: string) {
     .replaceAll("\n", "\\n");
 }
 
-function sanitizeMiroDiagramLabel(value: string) {
-  return value
-    .replaceAll("\r\n", " ")
-    .replaceAll("\n", " ")
-    .replaceAll("|", "-")
-    .replace(/\s+/g, " ")
-    .trim();
+function formatMiroDiagramLabel(lines: string[]) {
+  return lines
+    .map((line) =>
+      line
+        .replaceAll("\r\n", " ")
+        .replaceAll("\n", " ")
+        .replaceAll("|", "-")
+        .replace(/\s+/g, " ")
+        .trim()
+    )
+    .filter(Boolean)
+    .join("\\n");
 }
 
 function truncate(value: string, maxLength: number) {
@@ -949,4 +1238,23 @@ function buildStartingImagePrompt(shotlist: Shotlist, shot: Shotlist["shots"][nu
     `Motion cue to set up: ${shot.motion}`,
     "Generate a clean 16:9 product-video starting image that can be used as an image-to-video reference."
   ].join("\n");
+}
+
+function buildEndingImagePrompt(shotlist: Shotlist, shot: Shotlist["shots"][number], index: number) {
+  return [
+    `Create the final frame for shot ${index + 1} of ${shotlist.shots.length} in a product video for ${shotlist.productName}.`,
+    `Overall concept: ${shotlist.concept}`,
+    `Shot title: ${shot.title}`,
+    `Visual action: ${shot.prompt}`,
+    `Framing: ${shot.framing}`,
+    `Motion to complete: ${shot.motion}`,
+    "Show the product after the rotation or orbit has completed. Preserve all important character or product markings that may be hidden in the starting angle.",
+    "Generate a clean 16:9 product-video ending image for use as an image-to-video end frame."
+  ].join("\n");
+}
+
+function shouldUseEndImageForShot(shot: Shotlist["shots"][number]) {
+  return /\b(turn|turnaround|rotate|rotation|spin|spinning|orbit|360|three-sixty|all angles|multi-angle|multi angle|profile to front|front to profile)\b/i.test(
+    [shot.title, shot.prompt, shot.motion, shot.framing].join(" ")
+  );
 }

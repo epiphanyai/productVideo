@@ -3,6 +3,7 @@ import { configureFal, uploadDataUrlToFalStorage } from "@/lib/agent-runtime/fal
 import type { ProductPhoto, Shotlist, VideoJobResult } from "@/lib/workflow/types";
 
 const draftModel = "fal-ai/wan-i2v";
+const endFrameDraftModel = "fal-ai/wan/v2.7/image-to-video";
 const mergeModel = "fal-ai/ffmpeg-api/merge-videos";
 
 export async function createVideoFromShotlist(
@@ -41,16 +42,14 @@ export async function createVideoFromShotlist(
       }
 
       const prompt = buildShotPrompt(shotlist, shot, index);
-      const result = await fal.subscribe(draftModel, {
-        input: {
-          image_url: referenceImageUrl,
-          prompt,
-          resolution: "480p",
-          aspect_ratio: "auto",
-          enable_prompt_expansion: true,
-          num_frames: 81
-        },
-        logs: true
+      const usesEndFrame = Boolean(shot.useEndImage && shot.endImageUrl);
+      const result = await createShotVideo({
+        endImageUrl: usesEndFrame ? shot.endImageUrl : undefined,
+        prompt,
+        referenceImageUrl,
+        shotIndex: index,
+        title: shot.title,
+        durationSeconds: shot.durationSeconds
       });
       const previewUrl = findVideoUrl(result.data);
 
@@ -89,6 +88,58 @@ export async function createVideoFromShotlist(
   };
 }
 
+async function createShotVideo({
+  durationSeconds,
+  endImageUrl,
+  prompt,
+  referenceImageUrl,
+  shotIndex,
+  title
+}: {
+  durationSeconds: number;
+  endImageUrl?: string;
+  prompt: string;
+  referenceImageUrl: string;
+  shotIndex: number;
+  title: string;
+}) {
+  if (endImageUrl) {
+    try {
+      return await fal.subscribe(endFrameDraftModel, {
+        input: {
+          image_url: referenceImageUrl,
+          end_image_url: endImageUrl,
+          prompt,
+          resolution: "720p",
+          duration: toWan27Duration(durationSeconds)
+        },
+        logs: true
+      });
+    } catch (error) {
+      console.warn(
+        `End-frame video generation failed for shot ${shotIndex + 1} (${title}); falling back to start-image video.`,
+        formatFalVideoError(error)
+      );
+    }
+  }
+
+  try {
+    return await fal.subscribe(draftModel, {
+      input: {
+        image_url: referenceImageUrl,
+        prompt,
+        resolution: "480p",
+        aspect_ratio: "auto",
+        enable_prompt_expansion: true,
+        num_frames: 81
+      },
+      logs: true
+    });
+  } catch (error) {
+    throw new Error(`Shot ${shotIndex + 1} video generation failed: ${formatFalVideoError(error)}`);
+  }
+}
+
 function findFileUrl(value: unknown, key: string) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -117,6 +168,47 @@ async function getFalImageUrl(photo: ProductPhoto) {
   }
 
   return uploadDataUrlToFalStorage(photo.url);
+}
+
+function clampVideoDuration(durationSeconds: number) {
+  return Math.max(2, Math.min(15, Math.round(durationSeconds)));
+}
+
+function toWan27Duration(durationSeconds: number) {
+  return String(clampVideoDuration(durationSeconds)) as
+    | "2"
+    | "3"
+    | "4"
+    | "5"
+    | "6"
+    | "7"
+    | "8"
+    | "9"
+    | "10"
+    | "11"
+    | "12"
+    | "13"
+    | "14"
+    | "15";
+}
+
+function formatFalVideoError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+
+  const details = error as Error & {
+    body?: unknown;
+    response?: { status?: number; statusText?: string; body?: unknown };
+    status?: number;
+  };
+  const body = details.body ?? details.response?.body;
+  const status = details.status ?? details.response?.status;
+  const statusText = details.response?.statusText;
+
+  return [status ? `HTTP ${status}` : "", statusText ?? "", error.message, body ? JSON.stringify(body) : ""]
+    .filter(Boolean)
+    .join(" ");
 }
 
 async function getCachedFalImageUrl(photo: ProductPhoto, uploadedPhotos: Map<string, string>) {

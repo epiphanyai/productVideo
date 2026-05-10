@@ -23,7 +23,8 @@ type ShotlistWorkspaceProps = {
   isCreatingVideo: boolean;
   error: string | null;
   onCreateVideo: () => void;
-  onRegenerateShotImage: (shotId: string, imagePrompt: string) => void;
+  onRegenerateShotImage: (shotId: string, imagePrompt: string, imageKind?: "start" | "end") => void;
+  onToggleEndImage: (shotId: string, enabled: boolean, endImagePrompt?: string) => void;
   onUpdateShotVideoPrompt: (shotId: string, videoPrompt: string) => void;
 };
 
@@ -35,13 +36,16 @@ export function ShotlistWorkspace({
   error,
   onCreateVideo,
   onRegenerateShotImage,
+  onToggleEndImage,
   onUpdateShotVideoPrompt
 }: ShotlistWorkspaceProps) {
   const [selectedShotIndex, setSelectedShotIndex] = useState(0);
   const [thumbnailPageIndex, setThumbnailPageIndex] = useState(0);
   const [promptTab, setPromptTab] = useState<"image" | "video">("image");
+  const [selectedImageFrame, setSelectedImageFrame] = useState<"start" | "end">("start");
   const selectedShot = shotlist?.shots[selectedShotIndex] ?? null;
   const [imagePromptDraft, setImagePromptDraft] = useState("");
+  const [endImagePromptDraft, setEndImagePromptDraft] = useState("");
   const [videoPromptDraft, setVideoPromptDraft] = useState("");
 
   useEffect(() => {
@@ -51,8 +55,10 @@ export function ShotlistWorkspace({
 
   useEffect(() => {
     setImagePromptDraft(selectedShot?.imagePrompt || selectedShot?.prompt || "");
+    setEndImagePromptDraft(selectedShot?.endImagePrompt || selectedShot?.imagePrompt || selectedShot?.prompt || "");
     setVideoPromptDraft(selectedShot?.videoPrompt || selectedShot?.prompt || "");
-  }, [selectedShot?.id, selectedShot?.imagePrompt, selectedShot?.prompt]);
+    setSelectedImageFrame("start");
+  }, [selectedShot?.id, selectedShot?.imagePrompt, selectedShot?.endImagePrompt, selectedShot?.prompt]);
 
   const thumbnailPageCount = Math.max(1, Math.ceil((shotlist?.shots.length ?? 0) / thumbnailsPerPage));
   const safeThumbnailPageIndex = Math.min(thumbnailPageIndex, thumbnailPageCount - 1);
@@ -94,11 +100,22 @@ export function ShotlistWorkspace({
   }
 
   const imageIsRunning = selectedShot.imageStatus === "running";
+  const endImageIsRunning = selectedShot.endImageStatus === "running";
+  const activeImageIsEnd = selectedImageFrame === "end" && Boolean(selectedShot.useEndImage);
+  const activeImageUrl = activeImageIsEnd ? selectedShot.endImageUrl : selectedShot.startImageUrl;
+  const activeImageIsRunning = activeImageIsEnd ? endImageIsRunning : imageIsRunning;
+  const activeImageError = activeImageIsEnd ? selectedShot.endImageError : selectedShot.imageError;
+  const activeImagePromptDraft = activeImageIsEnd ? endImagePromptDraft : imagePromptDraft;
+  const activeImagePrompt = activeImageIsEnd
+    ? selectedShot.endImagePrompt || selectedShot.imagePrompt || selectedShot.prompt
+    : selectedShot.imagePrompt || selectedShot.prompt;
   const imagePromptChanged =
     imagePromptDraft.trim() && imagePromptDraft.trim() !== (selectedShot.imagePrompt || selectedShot.prompt);
+  const endImagePromptChanged =
+    endImagePromptDraft.trim() &&
+    endImagePromptDraft.trim() !== (selectedShot.endImagePrompt || selectedShot.imagePrompt || selectedShot.prompt);
   const videoPromptChanged =
     videoPromptDraft.trim() && videoPromptDraft.trim() !== (selectedShot.videoPrompt || selectedShot.prompt);
-  const needsReferenceImage = Boolean(selectedShot.startImageUrl || selectedShot.sourceImageUrls?.length);
 
   return (
     <section className="rounded-lg border border-stone-300 bg-white shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
@@ -116,26 +133,42 @@ export function ShotlistWorkspace({
 
       <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
         <div className="overflow-hidden rounded-lg border border-stone-300 bg-[#f8faf8]">
-          {selectedShot.startImageUrl ? (
+          {activeImageUrl ? (
             <img
-              alt={`${selectedShot.title} starting frame`}
+              alt={`${selectedShot.title} ${activeImageIsEnd ? "ending" : "starting"} frame`}
               className="aspect-video w-full bg-[#dce5df] object-cover"
-              src={selectedShot.startImageUrl}
+              src={activeImageUrl}
             />
           ) : (
             <div className="grid aspect-video place-items-center bg-[#dce5df] text-[#647174]">
-              {imageIsRunning ? (
+              {activeImageIsRunning ? (
                 <div className="text-center text-sm font-bold">
                   <Loader2 className="mx-auto mb-2 animate-spin text-[#2f6f63]" size={28} />
                   Generating image
                 </div>
-              ) : selectedShot.imageStatus === "error" ? (
+              ) : activeImageError ? (
                 <div className="px-4 text-center text-sm font-bold text-[#8a2e2e]">Image failed</div>
               ) : (
                 <ImageIcon size={34} />
               )}
             </div>
           )}
+          <div className="flex min-h-10 items-center justify-center gap-1.5 border-t border-stone-300 bg-white px-2 py-1">
+            <FrameThumb
+              imageUrl={selectedShot.startImageUrl}
+              isLoading={imageIsRunning}
+              isSelected={selectedImageFrame === "start"}
+              onClick={() => setSelectedImageFrame("start")}
+            />
+            {selectedShot.useEndImage ? (
+              <FrameThumb
+                imageUrl={selectedShot.endImageUrl}
+                isLoading={endImageIsRunning}
+                isSelected={selectedImageFrame === "end"}
+                onClick={() => setSelectedImageFrame("end")}
+              />
+            ) : null}
+          </div>
         </div>
 
         <div className="grid content-start gap-4">
@@ -158,8 +191,6 @@ export function ShotlistWorkspace({
               </span>
             ) : null}
           </div>
-
-          <p className="text-sm leading-6 text-[#425054]">{selectedShot.prompt}</p>
 
           <div className="overflow-hidden rounded-lg border border-stone-300">
             <div className="grid grid-cols-2 bg-[#eef4ef] p-1">
@@ -186,35 +217,90 @@ export function ShotlistWorkspace({
             <div className="grid gap-3 p-3">
               {promptTab === "image" ? (
                 <>
+                  <label className="flex items-center justify-between gap-3 rounded-lg bg-[#f8faf8] p-3 text-sm font-bold text-[#1d2528]">
+                    <span>Use end image for this shot</span>
+                    <input
+                      checked={Boolean(selectedShot.useEndImage)}
+                      className="size-4"
+                      onChange={(event) => {
+                        const enabled = event.target.checked;
+                        if (enabled) {
+                          setSelectedImageFrame("end");
+                        } else {
+                          setSelectedImageFrame("start");
+                        }
+                        onToggleEndImage(selectedShot.id, enabled, endImagePromptDraft);
+                      }}
+                      type="checkbox"
+                    />
+                  </label>
+                  {selectedShot.useEndImage ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        className={`min-h-10 rounded-lg border text-sm font-bold ${
+                          selectedImageFrame === "start"
+                            ? "border-[#2f6f63] bg-[#eef4ef] text-[#1d2528]"
+                            : "border-stone-300 bg-white text-[#647174]"
+                        }`}
+                        onClick={() => setSelectedImageFrame("start")}
+                        type="button"
+                      >
+                        First Image
+                      </button>
+                      <button
+                        className={`min-h-10 rounded-lg border text-sm font-bold ${
+                          selectedImageFrame === "end"
+                            ? "border-[#2f6f63] bg-[#eef4ef] text-[#1d2528]"
+                            : "border-stone-300 bg-white text-[#647174]"
+                        }`}
+                        onClick={() => setSelectedImageFrame("end")}
+                        type="button"
+                      >
+                        Last Image
+                      </button>
+                    </div>
+                  ) : null}
                   <textarea
                     className="min-h-36 resize-y rounded-lg border border-stone-300 bg-[#f8faf8] px-3 py-3 text-sm leading-6 outline-none focus:border-[#2f6f63]"
-                    onChange={(event) => setImagePromptDraft(event.target.value)}
-                    value={imagePromptDraft}
+                    onChange={(event) =>
+                      activeImageIsEnd ? setEndImagePromptDraft(event.target.value) : setImagePromptDraft(event.target.value)
+                    }
+                    value={activeImagePromptDraft}
                   />
-                  {selectedShot.imageError ? (
+                  {activeImageError ? (
                     <div className="rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
-                      {selectedShot.imageError}
+                      {activeImageError}
                     </div>
                   ) : null}
                   <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                     <a
                       className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white px-4 font-bold text-[#1d2528] sm:w-44 ${
-                        selectedShot.startImageUrl ? "" : "pointer-events-none opacity-55"
+                        activeImageUrl ? "" : "pointer-events-none opacity-55"
                       }`}
-                      download={`${selectedShot.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-start.png`}
-                      href={selectedShot.startImageUrl || "#"}
+                      download={`${selectedShot.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${
+                        activeImageIsEnd ? "end" : "start"
+                      }.png`}
+                      href={activeImageUrl || "#"}
                     >
                       <Download size={18} />
                       Download
                     </a>
                     <button
                       className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white px-4 font-bold text-[#1d2528] disabled:cursor-not-allowed disabled:opacity-55 sm:w-56"
-                      disabled={imageIsRunning || !imagePromptDraft.trim()}
-                      onClick={() => onRegenerateShotImage(selectedShot.id, imagePromptDraft)}
+                      disabled={activeImageIsRunning || !activeImagePromptDraft.trim()}
+                      onClick={() =>
+                        onRegenerateShotImage(
+                          selectedShot.id,
+                          activeImagePromptDraft,
+                          activeImageIsEnd ? "end" : "start"
+                        )
+                      }
                       type="button"
                     >
-                      {imageIsRunning ? <Loader2 className="animate-spin" size={18} /> : <RefreshCw size={18} />}
-                      {imagePromptChanged ? "Regenerate Image" : "Regenerate"}
+                      {activeImageIsRunning ? <Loader2 className="animate-spin" size={18} /> : <RefreshCw size={18} />}
+                      {(activeImageIsEnd ? endImagePromptChanged : imagePromptChanged)
+                        ? "Regenerate Image"
+                        : "Regenerate"}
                     </button>
                   </div>
                 </>
@@ -234,13 +320,6 @@ export function ShotlistWorkspace({
                     }}
                     value={videoPromptDraft}
                   />
-                  <label className="flex items-start gap-2 rounded-lg bg-[#f8faf8] p-3 text-sm leading-6 text-[#647174]">
-                    <input checked={needsReferenceImage} className="mt-1" disabled readOnly type="checkbox" />
-                    <span>
-                      Reference image will be used automatically when a generated starting image or product photo is
-                      available.
-                    </span>
-                  </label>
                   {videoPromptChanged ? (
                     <div className="text-xs font-bold text-[#647174]">Video instructions saved for this shot.</div>
                   ) : null}
@@ -273,6 +352,36 @@ export function ShotlistWorkspace({
         </button>
       </div>
     </section>
+  );
+}
+
+function FrameThumb({
+  imageUrl,
+  isLoading,
+  isSelected,
+  onClick
+}: {
+  imageUrl?: string;
+  isLoading: boolean;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={`grid w-12 place-items-center rounded-md border p-0.5 ${
+        isSelected ? "border-[#2f6f63] bg-[#eef4ef]" : "border-stone-300 bg-[#f8faf8]"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      {imageUrl ? (
+        <img alt="" className="aspect-video w-full rounded-[5px] bg-[#dce5df] object-cover" src={imageUrl} />
+      ) : (
+        <div className="grid aspect-video w-full place-items-center rounded-[5px] bg-[#dce5df] text-[#647174]">
+          {isLoading ? <Loader2 className="animate-spin text-[#2f6f63]" size={14} /> : <ImageIcon size={14} />}
+        </div>
+      )}
+    </button>
   );
 }
 

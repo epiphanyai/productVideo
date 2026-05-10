@@ -51,6 +51,7 @@ const shotlistAgent = new Agent({
     "When a videoPlan is provided, return exactly videoPlan.targetShotCount shots.",
     "Make each shot duration fit the requested total video duration.",
     "Use uploaded photo names as assets only when they are relevant to a shot.",
+    "Keep titles, framing, and motion short and plain so the Miro flow reads like quick caveman-style scene cues; keep prompt detailed enough for image and video generation.",
     "Keep the plan concise enough for collaborators to review in Miro."
   ].join(" "),
   outputType: shotlistDraftSchema

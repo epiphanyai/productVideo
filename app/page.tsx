@@ -174,13 +174,16 @@ export default function Home() {
         shots: payload.result.shotlist.shots.map((shot) => ({
           ...shot,
           imageStatus: "running" as const,
+          endImageStatus: shot.useEndImage ? ("running" as const) : "idle" as const,
           startImageUrl: undefined,
-          imageError: undefined
+          endImageUrl: undefined,
+          imageError: undefined,
+          endImageError: undefined
         }))
       };
 
       setShotlist(baseShotlist);
-      void generateShotImagesSequentially(baseShotlist, payload.result.boardContext.imageUrls);
+      void generateShotImagesConcurrently(baseShotlist, payload.result.boardContext.imageUrls);
     } catch (error) {
       setShotlistError(error instanceof Error ? error.message : "Unable to create shotlist from Miro.");
     } finally {
@@ -188,14 +191,18 @@ export default function Home() {
     }
   }
 
-  async function generateShotImagesSequentially(baseShotlist: Shotlist, miroImageUrls: string[]) {
+  async function generateShotImagesConcurrently(baseShotlist: Shotlist, miroImageUrls: string[]) {
     const runId = imageGenerationRunId.current;
 
     setIsGeneratingImages(true);
 
-    for (const shot of baseShotlist.shots) {
+    async function generateShotImage(
+      shot: Shotlist["shots"][number],
+      imageKind: "start" | "end",
+      imagePrompt: string | undefined
+    ): Promise<Shotlist["shots"][number] | null> {
       if (runId !== imageGenerationRunId.current) {
-        return;
+        return null;
       }
 
       try {
@@ -207,7 +214,8 @@ export default function Home() {
             shotId: shot.id,
             photos: brief.photos,
             miroImageUrls,
-            imagePrompt: shot.imagePrompt
+            imagePrompt,
+            imageKind
           })
         });
         const payload = (await response.json()) as {
@@ -219,21 +227,22 @@ export default function Home() {
           throw new Error(payload.error ?? "Unable to generate starting image.");
         }
 
+        const nextShot = mergeGeneratedShotImage(shot, payload.result.shot, imageKind);
+
         setShotlist((current) =>
           current
             ? {
                 ...current,
                 shots: current.shots.map((currentShot) =>
                   currentShot.id === shot.id
-                    ? {
-                        ...payload.result!.shot,
-                        imageStatus: payload.result!.shot.startImageUrl ? "ready" : "idle"
-                      }
+                    ? mergeGeneratedShotImage(currentShot, payload.result!.shot, imageKind)
                     : currentShot
                 )
               }
             : current
         );
+
+        return nextShot;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to generate starting image.";
 
@@ -245,23 +254,46 @@ export default function Home() {
                   currentShot.id === shot.id
                     ? {
                         ...currentShot,
-                        imageStatus: "error",
-                        imageError: message
+                        ...(imageKind === "end"
+                          ? {
+                              endImageStatus: "error" as const,
+                              endImageError: message
+                            }
+                          : {
+                              imageStatus: "error" as const,
+                              imageError: message
+                            })
                       }
                     : currentShot
                 )
               }
             : current
         );
+
+        return null;
       }
     }
+
+    const startResults = await Promise.all(
+      baseShotlist.shots.map(async (shot) => (await generateShotImage(shot, "start", shot.imagePrompt)) ?? shot)
+    );
+
+    if (runId !== imageGenerationRunId.current) {
+      return;
+    }
+
+    await Promise.all(
+      startResults
+        .filter((shot) => shot.useEndImage)
+        .map((shot) => generateShotImage(shot, "end", shot.endImagePrompt))
+    );
 
     if (runId === imageGenerationRunId.current) {
       setIsGeneratingImages(false);
     }
   }
 
-  async function regenerateShotImage(shotId: string, imagePrompt: string) {
+  async function regenerateShotImage(shotId: string, imagePrompt: string, imageKind: "start" | "end" = "start") {
     if (!shotlist) {
       return;
     }
@@ -273,7 +305,14 @@ export default function Home() {
         shot.id === shotId
           ? {
               ...shot,
-              imagePrompt
+              ...(imageKind === "end"
+                ? {
+                    endImagePrompt: imagePrompt,
+                    useEndImage: true
+                  }
+                : {
+                    imagePrompt
+                  })
             }
           : shot
       )
@@ -287,9 +326,18 @@ export default function Home() {
               shot.id === shotId
                 ? {
                     ...shot,
-                    imagePrompt,
-                    imageStatus: "running",
-                    imageError: undefined
+                    ...(imageKind === "end"
+                      ? {
+                          endImagePrompt: imagePrompt,
+                          useEndImage: true,
+                          endImageStatus: "running" as const,
+                          endImageError: undefined
+                        }
+                      : {
+                          imagePrompt,
+                          imageStatus: "running" as const,
+                          imageError: undefined
+                        })
                   }
                 : shot
             )
@@ -306,7 +354,8 @@ export default function Home() {
           shotId,
           photos: brief.photos,
           miroImageUrls: boardImageUrls,
-          imagePrompt
+          imagePrompt,
+          imageKind
         })
       });
       const payload = (await response.json()) as {
@@ -324,10 +373,7 @@ export default function Home() {
               ...current,
               shots: current.shots.map((shot) =>
                 shot.id === shotId
-                  ? {
-                      ...payload.result!.shot,
-                      imageStatus: payload.result!.shot.startImageUrl ? "ready" : "idle"
-                    }
+                  ? mergeGeneratedShotImage(shot, payload.result!.shot, imageKind)
                   : shot
               )
             }
@@ -344,8 +390,15 @@ export default function Home() {
                 shot.id === shotId
                   ? {
                       ...shot,
-                      imageStatus: "error",
-                      imageError: message
+                      ...(imageKind === "end"
+                        ? {
+                            endImageStatus: "error" as const,
+                            endImageError: message
+                          }
+                        : {
+                            imageStatus: "error" as const,
+                            imageError: message
+                          })
                     }
                   : shot
               )
@@ -353,6 +406,66 @@ export default function Home() {
           : current
       );
     }
+  }
+
+  function toggleShotEndImage(shotId: string, enabled: boolean, endImagePrompt?: string) {
+    if (!shotlist) {
+      return;
+    }
+
+    if (!enabled) {
+      setShotlist((current) =>
+        current
+          ? {
+              ...current,
+              shots: current.shots.map((shot) =>
+                shot.id === shotId
+                  ? {
+                      ...shot,
+                      useEndImage: false,
+                      endImageStatus: "idle",
+                      endImageError: undefined,
+                      endImageUrl: undefined
+                    }
+                  : shot
+              )
+            }
+          : current
+      );
+      return;
+    }
+
+    const shot = shotlist.shots.find((candidate) => candidate.id === shotId);
+    const prompt = endImagePrompt?.trim() || shot?.endImagePrompt || shot?.imagePrompt || shot?.prompt || "";
+
+    if (prompt) {
+      void regenerateShotImage(shotId, prompt, "end");
+    }
+  }
+
+  function mergeGeneratedShotImage(
+    currentShot: Shotlist["shots"][number],
+    generatedShot: Shotlist["shots"][number],
+    imageKind: "start" | "end"
+  ) {
+    return imageKind === "end"
+      ? {
+          ...currentShot,
+          endImagePrompt: generatedShot.endImagePrompt ?? currentShot.endImagePrompt,
+          endImageUrl: generatedShot.endImageUrl,
+          endImageStatus: generatedShot.endImageUrl ? ("ready" as const) : ("idle" as const),
+          endImageError: undefined,
+          sourceImageUrls: generatedShot.sourceImageUrls ?? currentShot.sourceImageUrls,
+          useEndImage: true
+        }
+      : {
+          ...currentShot,
+          imagePrompt: generatedShot.imagePrompt ?? currentShot.imagePrompt,
+          startImageUrl: generatedShot.startImageUrl,
+          imageStatus: generatedShot.startImageUrl ? ("ready" as const) : ("idle" as const),
+          imageError: undefined,
+          sourceImageUrls: generatedShot.sourceImageUrls ?? currentShot.sourceImageUrls
+        };
   }
 
   function updateShotVideoPrompt(shotId: string, videoPrompt: string) {
@@ -465,6 +578,7 @@ export default function Home() {
                 isLoading={isCreatingShotlist}
                 onCreateVideo={createVideo}
                 onRegenerateShotImage={regenerateShotImage}
+                onToggleEndImage={toggleShotEndImage}
                 onUpdateShotVideoPrompt={updateShotVideoPrompt}
                 shotlist={shotlist}
               />

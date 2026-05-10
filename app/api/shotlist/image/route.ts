@@ -6,12 +6,13 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const { shotlist, shotId, photos, miroImageUrls, imagePrompt } = (await request.json()) as {
+    const { shotlist, shotId, photos, miroImageUrls, imagePrompt, imageKind } = (await request.json()) as {
       shotlist?: Shotlist;
       shotId?: string;
       photos?: ProductPhoto[];
       miroImageUrls?: string[];
       imagePrompt?: string;
+      imageKind?: "start" | "end";
     };
 
     if (!shotlist?.shots?.length) {
@@ -27,7 +28,8 @@ export async function POST(request: Request) {
       shotId,
       photos: photos ?? [],
       miroImageUrls: miroImageUrls ?? [],
-      imagePrompt
+      imagePrompt,
+      imageKind
     });
 
     return NextResponse.json({ result });

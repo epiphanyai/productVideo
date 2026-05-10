@@ -27,11 +27,16 @@ export type Shot = {
   prompt: string;
   assets: string[];
   startImageUrl?: string;
+  endImageUrl?: string;
   sourceImageUrls?: string[];
   imagePrompt?: string;
+  endImagePrompt?: string;
   videoPrompt?: string;
+  useEndImage?: boolean;
   imageStatus?: WorkflowRunStatus;
+  endImageStatus?: WorkflowRunStatus;
   imageError?: string;
+  endImageError?: string;
 };
 
 export type Shotlist = {
