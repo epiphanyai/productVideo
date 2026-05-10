@@ -67,15 +67,8 @@ export function ProductIntake({
   }
 
   return (
-    <section className="rounded-lg border border-stone-300 bg-white shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
-      <div className="border-b border-stone-300 p-5">
-        <h2 className="text-lg font-bold text-[#1d2528]">Product Intake</h2>
-        <p className="mt-1 text-sm leading-6 text-[#647174]">
-          Describe the product, add source photos, and choose the video style the agent should plan around.
-        </p>
-      </div>
-
-      <div className="grid gap-4 p-5">
+    <section>
+      <div className="grid gap-4">
         <label className="grid gap-2">
           <span className="text-sm font-bold">Product name</span>
           <input

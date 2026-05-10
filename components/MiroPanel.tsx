@@ -37,43 +37,28 @@ export function MiroPanel({
     return (
         <div className="rounded-lg border border-stone-300 bg-white shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
             <div className="border-b border-stone-300 p-5">
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div>
-                        <h3 className="flex items-center gap-2 text-base font-bold">
-                            <PanelsTopLeft size={18} />
-                            Miro Board
-                        </h3>
-                        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#647174]">
-                            Collaborate on Miro for the shot lists for your video.
-                        </p>
-                    </div>
+                <div className="flex justify-end">
                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[#eef4ef] px-3 text-sm font-bold text-[#1d2528]">
+                        <button
+                            className="group inline-flex min-h-10 items-center gap-2 rounded-full bg-[#eef4ef] px-3 text-sm font-bold text-[#1d2528] transition hover:bg-[#dfece4]"
+                            onClick={() => onConnectMiro(isConnected)}
+                            type="button"
+                        >
                             <span
                                 className={`size-2 rounded-full ${isConnected ? "bg-[#2f8f64]" : "bg-[#9aa3a0]"}`}
                             />
-                            {isConnected ? "Miro connected" : "Miro disconnected"}
-                        </span>
-                        {!isConnected ? (
-                            <button
-                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-stone-300 px-3 text-sm font-bold text-[#1d2528]"
-                                onClick={() => onConnectMiro(false)}
-                                type="button"
-                            >
-                                <ExternalLink size={16} />
-                                Connect
-                            </button>
-                        ) : null}
-                        {isConnected ? (
-                            <button
-                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-stone-300 px-3 text-sm font-bold text-[#1d2528]"
-                                onClick={() => onConnectMiro(true)}
-                                type="button"
-                            >
-                                <RefreshCw size={16} />
-                                Reconnect
-                            </button>
-                        ) : null}
+                            <span className="group-hover:hidden">
+                                {isConnected ? "Miro connected" : "Miro disconnected"}
+                            </span>
+                            <span className="hidden group-hover:inline">
+                                {isConnected ? "Reconnect" : "Connect to Miro"}
+                            </span>
+                            {isConnected ? (
+                                <RefreshCw className="hidden group-hover:block" size={14} />
+                            ) : (
+                                <ExternalLink className="hidden group-hover:block" size={14} />
+                            )}
+                        </button>
                     </div>
                 </div>
                 {showExistingBoardInput ? (
@@ -114,6 +99,7 @@ export function MiroPanel({
             ) : null}
             {isCreatingBoard ? <MiroBoardPlaceholder /> : null}
             {result && !isCreatingBoard ? <MiroResult result={result} embedUrl={embedUrl} /> : null}
+            {!result && !isCreatingBoard ? <MiroEmptyState /> : null}
             <div className="border-t border-stone-300 p-5">
                 <button
                     className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#2f6f63] px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-55 md:w-auto"
@@ -169,6 +155,20 @@ function MiroBoardPlaceholder() {
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+function MiroEmptyState() {
+    return (
+        <div className="grid min-h-[360px] place-items-center p-8 text-center">
+            <div>
+                <PanelsTopLeft className="mx-auto mb-3 text-[#2f6f63]" size={34} />
+                <h2 className="text-lg font-bold">Miro board will appear here</h2>
+                <p className="mt-2 max-w-md text-sm leading-6 text-[#647174]">
+                    Create a board from product intake, or use an existing Miro board when board creation is unavailable.
+                </p>
             </div>
         </div>
     );

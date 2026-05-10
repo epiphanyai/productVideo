@@ -12,10 +12,10 @@ type VideoPanelProps = {
 export function VideoPanel({ result, isCreating, error }: VideoPanelProps) {
   if (!result && !isCreating && !error) {
     return (
-      <div className="grid min-h-52 place-items-center rounded-lg border border-stone-300 bg-white p-6 text-center shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
+      <div className="grid min-h-[360px] place-items-center rounded-lg border border-stone-300 bg-white p-8 text-center shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
         <div>
-          <Film className="mx-auto mb-3 text-[#2f6f63]" size={28} />
-          <h3 className="text-base font-bold">Video will appear here</h3>
+          <Film className="mx-auto mb-3 text-[#2f6f63]" size={34} />
+          <h2 className="text-lg font-bold">Video will appear here</h2>
           <p className="mt-2 max-w-md text-sm leading-6 text-[#647174]">
             Create it from the finalized image shotlist.
           </p>
@@ -26,10 +26,6 @@ export function VideoPanel({ result, isCreating, error }: VideoPanelProps) {
 
   return (
     <div className="rounded-lg border border-stone-300 bg-white p-5 shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
-      <h3 className="flex items-center gap-2 text-base font-bold">
-        <Film size={18} />
-        Video
-      </h3>
       {isCreating ? <VideoProgress targetDurationSeconds={result?.targetDurationSeconds ?? 0} /> : null}
       {error ? (
         <div className="mt-4 rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">

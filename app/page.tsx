@@ -23,9 +23,17 @@ const defaultBrief: ProductBrief = {
   photos: []
 };
 
+const workflowTabs: { id: WorkflowStage; label: string }[] = [
+  { id: "intake", label: "Product Intake" },
+  { id: "miro", label: "Miro Board" },
+  { id: "image-shotlist", label: "Image Shotlist" },
+  { id: "video", label: "Video" }
+];
+
 export default function Home() {
   const [brief, setBrief] = useState<ProductBrief>(defaultBrief);
   const [shotlist, setShotlist] = useState<Shotlist | null>(null);
+  const [activeStage, setActiveStage] = useState<WorkflowStage>("intake");
   const [miroResult, setMiroResult] = useState<MiroBoardResult | null>(null);
   const [imageShotlistResult, setImageShotlistResult] = useState<ImageShotlistResult | null>(null);
   const [videoResult, setVideoResult] = useState<VideoJobResult | null>(null);
@@ -40,22 +48,6 @@ export default function Home() {
   const [shotlistError, setShotlistError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const imageGenerationRunId = useRef(0);
-
-  const activeStage = useMemo<WorkflowStage>(() => {
-    if (videoResult) {
-      return "video";
-    }
-
-    if (shotlist) {
-      return "image-shotlist";
-    }
-
-    if (miroResult) {
-      return "miro";
-    }
-
-    return "intake";
-  }, [miroResult, shotlist, videoResult]);
 
   useEffect(() => {
     void loadMiroAuthStatus();
@@ -102,6 +94,7 @@ export default function Home() {
   }
 
   async function createMiroBoard(boardUrl?: string) {
+    setActiveStage("miro");
     setIsCreatingBoard(true);
     setMiroError(null);
     setShotlistError(null);
@@ -150,6 +143,7 @@ export default function Home() {
     }
 
     setIsCreatingShotlist(true);
+    setActiveStage("image-shotlist");
     setShotlistError(null);
     setVideoError(null);
     setShotlist(null);
@@ -271,6 +265,7 @@ export default function Home() {
       return;
     }
 
+    setActiveStage("video");
     setIsCreatingVideo(true);
     setVideoError(null);
 
@@ -296,48 +291,74 @@ export default function Home() {
 
   return (
     <main className="min-h-screen">
-      <WorkflowHeader activeStage={activeStage} />
+      <WorkflowHeader />
 
-      <section className="grid gap-8 px-5 py-8 md:px-10 lg:grid-cols-[420px_minmax(0,1fr)] lg:px-14">
-        <div className="grid content-start gap-5">
-          <ProductIntake
-            brief={brief}
-            error={miroError}
-            isGenerating={isCreatingBoard}
-            onBriefChange={setBrief}
-            onCreateMiroBoard={() => createMiroBoard()}
-          />
-        </div>
+      <section className="px-3 py-5 md:px-6 lg:px-8">
+        <div className="mx-auto max-w-[1800px]">
+          <div className="flex w-full items-end gap-0 pl-2">
+            {workflowTabs.map((tab) => {
+              const isActive = tab.id === activeStage;
 
-        <div className="grid content-start gap-5">
-          <MiroPanel
-            error={miroError}
-            isConnected={isMiroConnected}
-            isCreatingBoard={isCreatingBoard}
-            isCreatingShotlist={isCreatingShotlist}
-            miroBoardUrl={miroBoardUrl}
-            onConnectMiro={openMiroAuth}
-            onCreateShotlist={createShotlistFromMiro}
-            onMiroBoardUrlChange={setMiroBoardUrl}
-            onUseExistingBoard={() => createMiroBoard(miroBoardUrl)}
-            result={miroResult}
-            shotlistError={shotlistError}
-            showExistingBoardInput={showExistingBoardInput}
-          />
+              return (
+                <button
+                  className={`relative min-h-16 flex-1 whitespace-nowrap rounded-t-xl border-2 px-3 text-base font-black transition sm:flex-none sm:px-7 sm:text-lg ${
+                    isActive
+                      ? "top-px z-10 border-stone-300 border-b-white bg-white text-[#1d2528]"
+                      : "top-[7px] border-stone-300 bg-[#d9cfbf] text-[#1d2528] hover:bg-[#e7dfd2]"
+                  }`}
+                  key={tab.id}
+                  onClick={() => setActiveStage(tab.id)}
+                  type="button"
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
 
-          <ShotlistWorkspace
-            isCreatingVideo={isCreatingVideo}
-            isGeneratingImages={isGeneratingImages}
-            isLoading={isCreatingShotlist}
-            onCreateVideo={createVideo}
-            shotlist={shotlist}
-          />
+          <div className="relative -mt-px min-h-[calc(100vh-150px)] rounded-lg rounded-tl-none border border-stone-300 bg-white p-3 shadow-[0_18px_60px_rgba(29,37,40,0.12)] md:p-5">
+            <div className={activeStage === "intake" ? "" : "hidden"}>
+              <ProductIntake
+                brief={brief}
+                error={miroError}
+                isGenerating={isCreatingBoard}
+                onBriefChange={setBrief}
+                onCreateMiroBoard={() => createMiroBoard()}
+              />
+            </div>
 
-          <VideoPanel
-            error={videoError}
-            isCreating={isCreatingVideo}
-            result={videoResult}
-          />
+            <div className={activeStage === "miro" ? "grid content-start gap-5" : "hidden"}>
+              <MiroPanel
+                error={miroError}
+                isConnected={isMiroConnected}
+                isCreatingBoard={isCreatingBoard}
+                isCreatingShotlist={isCreatingShotlist}
+                miroBoardUrl={miroBoardUrl}
+                onConnectMiro={openMiroAuth}
+                onCreateShotlist={createShotlistFromMiro}
+                onMiroBoardUrlChange={setMiroBoardUrl}
+                onUseExistingBoard={() => createMiroBoard(miroBoardUrl)}
+                result={miroResult}
+                shotlistError={shotlistError}
+                showExistingBoardInput={showExistingBoardInput}
+              />
+            </div>
+
+            <div className={activeStage === "image-shotlist" ? "grid content-start gap-5" : "hidden"}>
+              <ShotlistWorkspace
+                error={shotlistError}
+                isCreatingVideo={isCreatingVideo}
+                isGeneratingImages={isGeneratingImages}
+                isLoading={isCreatingShotlist}
+                onCreateVideo={createVideo}
+                shotlist={shotlist}
+              />
+            </div>
+
+            <div className={activeStage === "video" ? "grid content-start gap-5" : "hidden"}>
+              <VideoPanel error={videoError} isCreating={isCreatingVideo} result={videoResult} />
+            </div>
+          </div>
         </div>
       </section>
     </main>
