@@ -12,6 +12,7 @@ Keep the app simple. Prefer one clear Next.js codebase over separate frontend/ba
 - **Agent runtime:** `lib/agent-runtime/` uses the OpenAI Agents SDK for AI orchestration and service boundaries.
 - **Workflow types:** `lib/workflow/` contains shared workflow data structures and style helpers.
 - **MCP integrations:** Miro should be reached through the Miro MCP server. Do not add direct Miro REST credentials or token-based auth to the app.
+- **Asset staging:** Product photos are uploaded to temporary fal.ai storage through `app/api/assets` before they are used by the shot list or video workflow.
 
 ---
 
@@ -42,18 +43,21 @@ MIRO_MCP_SESSION_TIMEOUT_SECONDS=120
 
 Miro authentication is handled through OAuth by the Miro MCP server. Do not add `MIRO_ACCESS_TOKEN`, `MIRO_BOARD_ID`, or similar Miro REST credentials to app env files. The app can connect to Miro MCP through either `MIRO_MCP_URL` for Streamable HTTP or `MIRO_MCP_COMMAND` / `MIRO_MCP_ARGS` for stdio.
 
+Current OAuth storage is local-only: `lib/agent-runtime/miro-oauth.ts` writes one process-local credential file. This is acceptable for the current local deployment, but it is not safe for multi-user hosting. Before deploying for multiple users, replace it with a per-user or per-session credential store.
+
 ---
 
 # User Flow
 
 1. User describes their product in the app.
 2. User optionally uploads product photos and selects a visual style.
-3. The app generates a structured shot list from the description and inputs.
-4. The shot list is pushed to Miro through MCP and displayed as a board.
-5. User edits shots directly in Miro and can add visual references.
-6. User starts video generation.
-7. The app reads the approved shot list from Miro, combines it with uploaded photos, and sends it to fal.ai.
-8. The generated video is returned and displayed in the app.
+3. Uploaded product photos are staged to fal.ai storage with a one-day lifecycle, and the app keeps the returned stable URLs.
+4. The app generates a structured shot list from the description and inputs.
+5. The shot list is pushed to Miro through MCP and displayed as a board.
+6. User can edit shots directly in Miro and add visual references.
+7. User starts video generation.
+8. The current app sends the in-memory shot list and staged product-photo URLs to fal.ai. Miro readback is intentionally deferred until the workflow rework.
+9. The generated video is returned and displayed in the app.
 
 ---
 
@@ -63,6 +67,7 @@ Miro authentication is handled through OAuth by the Miro MCP server. Do not add 
 app/
   page.tsx              # Main product video workflow UI
   api/
+    assets/route.ts     # Temporary fal.ai asset upload endpoint
     shotlist/route.ts   # Shot list generation endpoint
     miro/route.ts       # Miro MCP routing endpoint
     video/route.ts      # Video generation endpoint
@@ -70,6 +75,7 @@ app/
 components/             # UI components
 lib/
   agent-runtime/        # Shot list, Miro, and video runtime adapters
+    fal-assets.ts       # Shared fal.ai credential and temporary storage helpers
     miro-mcp.ts         # Miro MCP server configuration
   workflow/             # Shared workflow types and style definitions
 ```
@@ -101,9 +107,11 @@ When modifying integration logic:
 - Do not scatter Miro or fal.ai calls throughout UI components.
 - Shot list is the core workflow data structure. Treat it as the handoff format between the app, Miro, and video generation.
 - If the shot list schema changes, update the generation logic, Miro rendering logic, and video adapter together.
-- Uploaded photos should have stable URLs before being passed to fal.ai.
+- Uploaded photos should be staged to stable temporary URLs before being passed to shot list or video generation. Do not store base64 data URLs in workflow state or send them to `/api/video`.
 - Mock external services by default when required env vars or MCP sessions are missing.
 - Keep expensive or irreversible actions behind explicit user intent.
+- Keep route handlers thin. Put reusable service logic in `lib/agent-runtime/` and keep UI components focused by workflow panel.
+- Write descriptive commit messages in imperative mood. The subject should summarize the behavior change, and the body should explain why the change was made plus any important verification or risk notes.
 
 ---
 
@@ -152,6 +160,7 @@ const final = await fal.subscribe("fal-ai/kling-video/v3/pro/image-to-video", {
 - Always generate independent shots in parallel where possible.
 - Store draft video URLs temporarily.
 - Store final video URLs persistently only when persistence has been intentionally implemented.
+- When reading fal.ai responses, only treat generic `url` fields as video URLs if they look like actual video assets.
 
 ---
 

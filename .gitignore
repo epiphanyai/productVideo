@@ -9,4 +9,5 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 dev-server*.log
+.next-dev*.log
 .miro-mcp-auth.json

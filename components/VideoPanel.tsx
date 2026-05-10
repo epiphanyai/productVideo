@@ -1,0 +1,97 @@
+"use client";
+
+import { ExternalLink, Film, Loader2 } from "lucide-react";
+import type { Shotlist, VideoJobResult } from "@/lib/workflow/types";
+
+type VideoPanelProps = {
+  result: VideoJobResult | null;
+  shotlist: Shotlist | null;
+  isCreating: boolean;
+  error: string | null;
+  onCreateVideo: () => void;
+};
+
+export function VideoPanel({ result, shotlist, isCreating, error, onCreateVideo }: VideoPanelProps) {
+  return (
+    <div className="rounded-lg border border-stone-300 bg-white p-5 shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
+      <h3 className="flex items-center gap-2 text-base font-bold">
+        <Film size={18} />
+        Video Creation Job
+      </h3>
+      <p className="mt-2 text-sm leading-6 text-[#647174]">
+        Send the current shotlist and uploaded photos into the video generation adapter.
+      </p>
+      <button
+        className="mt-4 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#2f6f63] px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-55"
+        disabled={!shotlist || isCreating}
+        onClick={onCreateVideo}
+        type="button"
+      >
+        {isCreating ? <Loader2 className="animate-spin" size={18} /> : <Film size={18} />}
+        Create Video
+      </button>
+      {isCreating ? <VideoProgress targetDurationSeconds={shotlist?.targetDurationSeconds ?? 0} /> : null}
+      {error ? (
+        <div className="mt-4 rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
+          {error}
+        </div>
+      ) : null}
+      {result ? <VideoResult result={result} /> : null}
+    </div>
+  );
+}
+
+function VideoProgress({ targetDurationSeconds }: { targetDurationSeconds: number }) {
+  return (
+    <div className="mt-4 rounded-lg border border-[#cdd8d2] bg-[#eef4ef] p-4">
+      <div className="flex items-center justify-between gap-3 text-sm font-bold text-[#1d2528]">
+        <span>Generating video</span>
+        <span className="text-xs text-[#647174]">{targetDurationSeconds}s target</span>
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
+        <div className="h-full w-1/2 animate-[video-progress_1.4s_ease-in-out_infinite] rounded-full bg-[#2f6f63]" />
+      </div>
+    </div>
+  );
+}
+
+function VideoResult({ result }: { result: VideoJobResult }) {
+  return (
+    <div className="mt-4 rounded-lg bg-[#172225] p-4 text-sm leading-6 text-[#edf6f0]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <strong>{result.status === "created" ? "Video ready" : "Video job"}</strong>
+        <span className="rounded-full bg-white/10 px-3 py-1 text-xs">{result.status}</span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs text-[#c9d8d1]">
+        {result.targetDurationSeconds ? (
+          <span className="rounded-full bg-white/10 px-3 py-1">{result.targetDurationSeconds}s target</span>
+        ) : null}
+      </div>
+      {result.previewUrl ? (
+        <>
+          <video
+            className="mt-4 aspect-video w-full rounded-lg bg-black"
+            controls
+            playsInline
+            preload="metadata"
+            src={result.previewUrl}
+          />
+          <a
+            className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 font-bold text-[#172225]"
+            href={result.previewUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <ExternalLink size={16} />
+            Open Video
+          </a>
+        </>
+      ) : (
+        <p className="mt-3 text-[#c9d8d1]">No preview URL was returned yet.</p>
+      )}
+      <div className="mt-3 grid gap-1 text-xs text-[#c9d8d1]">
+        <span>Job: {result.jobId}</span>
+      </div>
+    </div>
+  );
+}

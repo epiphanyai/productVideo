@@ -1,6 +1,7 @@
 "use client";
 
 import { ImagePlus, Loader2, WandSparkles } from "lucide-react";
+import { useState } from "react";
 import { videoStyles } from "@/lib/workflow/styles";
 import type { ProductBrief, ProductPhoto, VideoStyleId } from "@/lib/workflow/types";
 
@@ -19,6 +20,9 @@ export function ProductIntake({
   onBriefChange,
   onGenerateShotlist
 }: ProductIntakeProps) {
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
+
   function updateBrief(update: Partial<ProductBrief>) {
     onBriefChange({ ...brief, ...update });
   }
@@ -28,15 +32,38 @@ export function ProductIntake({
       return;
     }
 
-    const photos: ProductPhoto[] = await Promise.all(
-      Array.from(files).map(async (file) => ({
-        id: `${file.name}-${file.lastModified}`,
-        name: file.name,
-        url: await readFileAsDataUrl(file)
-      }))
-    );
+    setIsUploadingPhotos(true);
+    setUploadError(null);
 
-    updateBrief({ photos: [...brief.photos, ...photos] });
+    try {
+      const photos: ProductPhoto[] = await Promise.all(
+        Array.from(files).map(async (file) => {
+          const id = `${file.name}-${file.lastModified}`;
+          const formData = new FormData();
+
+          formData.set("id", id);
+          formData.set("file", file);
+
+          const response = await fetch("/api/assets", {
+            method: "POST",
+            body: formData
+          });
+          const payload = (await response.json()) as { photo?: ProductPhoto; error?: string };
+
+          if (!response.ok || !payload.photo) {
+            throw new Error(payload.error ?? `Unable to upload ${file.name}.`);
+          }
+
+          return payload.photo;
+        })
+      );
+
+      updateBrief({ photos: [...brief.photos, ...photos] });
+    } catch (uploadFailure) {
+      setUploadError(uploadFailure instanceof Error ? uploadFailure.message : "Unable to upload product photos.");
+    } finally {
+      setIsUploadingPhotos(false);
+    }
   }
 
   return (
@@ -108,12 +135,15 @@ export function ProductIntake({
           <input
             accept="image/*"
             className="hidden"
+            disabled={isUploadingPhotos}
             multiple
             onChange={(event) => handlePhotoUpload(event.target.files)}
             type="file"
           />
           <ImagePlus className="mb-2 text-[#2f6f63]" size={28} />
-          <span className="text-sm font-bold">Upload product photos</span>
+          <span className="text-sm font-bold">
+            {isUploadingPhotos ? "Uploading product photos" : "Upload product photos"}
+          </span>
           <span className="text-xs leading-5 text-[#647174]">Use angles, details, packaging, and lifestyle references.</span>
         </label>
 
@@ -133,13 +163,19 @@ export function ProductIntake({
 
         <button
           className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#2f6f63] px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-55"
-          disabled={isGenerating || !brief.description.trim()}
+          disabled={isGenerating || isUploadingPhotos || !brief.description.trim()}
           onClick={onGenerateShotlist}
           type="button"
         >
           {isGenerating ? <Loader2 className="animate-spin" size={18} /> : <WandSparkles size={18} />}
           Create Shotlist
         </button>
+        {uploadError ? (
+          <div className="rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
+            {uploadError}
+          </div>
+        ) : null}
+
         {error ? (
           <div className="rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
             {error}
@@ -150,19 +186,3 @@ export function ProductIntake({
   );
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.addEventListener("load", () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-
-      reject(new Error("Unable to read product photo."));
-    });
-    reader.addEventListener("error", () => reject(reader.error ?? new Error("Unable to read product photo.")));
-    reader.readAsDataURL(file);
-  });
-}

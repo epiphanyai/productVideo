@@ -1,4 +1,5 @@
 import { fal } from "@fal-ai/client";
+import { configureFal, uploadDataUrlToFalStorage } from "@/lib/agent-runtime/fal-assets";
 import type { ProductPhoto, Shotlist, VideoJobResult } from "@/lib/workflow/types";
 
 const draftModel = "fal-ai/wan-i2v";
@@ -9,9 +10,10 @@ export async function createVideoFromShotlist(
   photos: ProductPhoto[]
 ): Promise<VideoJobResult> {
   const jobId = `video-${Date.now()}`;
-  const credentials = process.env.FAL_API_KEY?.trim() || process.env.FAL_KEY?.trim();
 
-  if (!credentials) {
+  try {
+    configureFal();
+  } catch {
     return {
       jobId,
       status: "mocked",
@@ -25,8 +27,6 @@ export async function createVideoFromShotlist(
   if (!referencePhoto) {
     throw new Error("Add at least one product photo before creating a fal video draft.");
   }
-
-  fal.config({ credentials });
 
   const uploadedPhotos = new Map<string, string>();
   const clips = await Promise.all(
@@ -109,11 +109,7 @@ async function getFalImageUrl(photo: ProductPhoto) {
     return photo.url;
   }
 
-  return fal.storage.upload(dataUrlToBlob(photo.url), {
-    lifecycle: {
-      expiresIn: "1d"
-    }
-  });
+  return uploadDataUrlToFalStorage(photo.url);
 }
 
 async function getCachedFalImageUrl(photo: ProductPhoto, uploadedPhotos: Map<string, string>) {
@@ -127,20 +123,6 @@ async function getCachedFalImageUrl(photo: ProductPhoto, uploadedPhotos: Map<str
   uploadedPhotos.set(photo.id, url);
 
   return url;
-}
-
-function dataUrlToBlob(dataUrl: string) {
-  const match = dataUrl.match(/^data:([^;,]+)?(;base64)?,(.*)$/);
-
-  if (!match) {
-    throw new Error("Uploaded product photo is not a valid data URL.");
-  }
-
-  const contentType = match[1] || "application/octet-stream";
-  const isBase64 = Boolean(match[2]);
-  const data = isBase64 ? Buffer.from(match[3], "base64") : Buffer.from(decodeURIComponent(match[3]));
-
-  return new Blob([data], { type: contentType });
 }
 
 function buildShotPrompt(shotlist: Shotlist, shot: Shotlist["shots"][number], index: number) {
@@ -179,7 +161,11 @@ function findVideoUrl(value: unknown): string | null {
   if (typeof value === "object") {
     for (const [key, nestedValue] of Object.entries(value)) {
       if (key === "url" && typeof nestedValue === "string") {
-        return nestedValue;
+        if (isVideoUrl(nestedValue)) {
+          return nestedValue;
+        }
+
+        continue;
       }
 
       const url = findVideoUrl(nestedValue);
