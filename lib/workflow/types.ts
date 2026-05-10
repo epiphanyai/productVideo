@@ -43,6 +43,7 @@ export type Shotlist = {
   id: string;
   productName: string;
   style: VideoStyleId;
+  audience?: string;
   concept: string;
   targetDurationSeconds: number;
   visualFeatureCount: number;
@@ -91,6 +92,7 @@ export type VideoJobResult = {
   jobId: string;
   status: "created" | "queued" | "mocked";
   previewUrl: string | null;
+  musicUrl?: string | null;
   clips?: VideoClipResult[];
   targetDurationSeconds?: number;
   message: string;

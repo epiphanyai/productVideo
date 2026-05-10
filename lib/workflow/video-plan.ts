@@ -40,7 +40,7 @@ export function planVideo({
     planIndex = Math.min(plans.length - 1, planIndex + 1);
   }
 
-  if ((style === "studio" || style === "cinematic") && normalizedFeatureCount < 6) {
+  if ((style === "studio" || style === "cinematic") && normalizedFeatureCount >= 4 && normalizedFeatureCount <= 6) {
     planIndex = 1;
   }
 
@@ -59,11 +59,11 @@ export function planVideo({
 }
 
 function getFeaturePlanIndex(visualFeatureCount: number) {
-  if (visualFeatureCount <= 2) {
+  if (visualFeatureCount <= 3) {
     return 0;
   }
 
-  if (visualFeatureCount <= 5) {
+  if (visualFeatureCount <= 6) {
     return 1;
   }
 
