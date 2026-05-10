@@ -23,16 +23,18 @@ export function ProductIntake({
     onBriefChange({ ...brief, ...update });
   }
 
-  function handlePhotoUpload(files: FileList | null) {
+  async function handlePhotoUpload(files: FileList | null) {
     if (!files?.length) {
       return;
     }
 
-    const photos: ProductPhoto[] = Array.from(files).map((file) => ({
-      id: `${file.name}-${file.lastModified}`,
-      name: file.name,
-      url: URL.createObjectURL(file)
-    }));
+    const photos: ProductPhoto[] = await Promise.all(
+      Array.from(files).map(async (file) => ({
+        id: `${file.name}-${file.lastModified}`,
+        name: file.name,
+        url: await readFileAsDataUrl(file)
+      }))
+    );
 
     updateBrief({ photos: [...brief.photos, ...photos] });
   }
@@ -146,4 +148,21 @@ export function ProductIntake({
       </div>
     </section>
   );
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.addEventListener("load", () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("Unable to read product photo."));
+    });
+    reader.addEventListener("error", () => reject(reader.error ?? new Error("Unable to read product photo.")));
+    reader.readAsDataURL(file);
+  });
 }

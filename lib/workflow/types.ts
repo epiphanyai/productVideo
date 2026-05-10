@@ -48,7 +48,7 @@ export type MiroBoardResult = {
 
 export type VideoJobResult = {
   jobId: string;
-  status: "queued" | "mocked";
+  status: "created" | "queued" | "mocked";
   previewUrl: string | null;
   message: string;
 };
