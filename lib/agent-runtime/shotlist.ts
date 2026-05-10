@@ -72,7 +72,7 @@ export async function createShotlist(brief: ProductBrief): Promise<Shotlist> {
         },
         photos: brief.photos.map((photo) => ({
           name: photo.name,
-          url: photo.url
+          source: summarizePhotoSource(photo.url)
         }))
       },
       null,
@@ -85,6 +85,16 @@ export async function createShotlist(brief: ProductBrief): Promise<Shotlist> {
   }
 
   return normalizeShotlistDraft(brief, result.finalOutput);
+}
+
+function summarizePhotoSource(url: string) {
+  if (url.startsWith("data:")) {
+    const mimeType = url.match(/^data:([^;,]+)/)?.[1] ?? "image";
+
+    return `${mimeType} uploaded by user`;
+  }
+
+  return url;
 }
 
 function createMockShotlist(brief: ProductBrief): Shotlist {
