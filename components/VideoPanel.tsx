@@ -7,9 +7,10 @@ type VideoPanelProps = {
   result: VideoJobResult | null;
   isCreating: boolean;
   error: string | null;
+  targetDurationSeconds: number;
 };
 
-export function VideoPanel({ result, isCreating, error }: VideoPanelProps) {
+export function VideoPanel({ result, isCreating, error, targetDurationSeconds }: VideoPanelProps) {
   if (!result && !isCreating && !error) {
     return (
       <div className="grid min-h-[360px] place-items-center rounded-lg border border-stone-300 bg-white p-8 text-center shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
@@ -26,7 +27,7 @@ export function VideoPanel({ result, isCreating, error }: VideoPanelProps) {
 
   return (
     <div className="rounded-lg border border-stone-300 bg-white p-5 shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
-      {isCreating ? <VideoProgress targetDurationSeconds={result?.targetDurationSeconds ?? 0} /> : null}
+      {isCreating ? <VideoProgress targetDurationSeconds={targetDurationSeconds} /> : null}
       {error ? (
         <div className="mt-4 rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
           {error}
@@ -41,7 +42,7 @@ function VideoProgress({ targetDurationSeconds }: { targetDurationSeconds: numbe
   return (
     <div className="mt-4 rounded-lg border border-[#cdd8d2] bg-[#eef4ef] p-4">
       <div className="flex items-center justify-between gap-3 text-sm font-bold text-[#1d2528]">
-        <span>Generating video</span>
+        <span>Generating video and music</span>
         <span className="text-xs text-[#647174]">{targetDurationSeconds}s target</span>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
@@ -63,7 +64,9 @@ function VideoResult({ result }: { result: VideoJobResult }) {
         {result.targetDurationSeconds ? (
           <span className="rounded-full bg-white/10 px-3 py-1">{result.targetDurationSeconds}s target</span>
         ) : null}
+        {result.musicUrl ? <span className="rounded-full bg-white/10 px-3 py-1">Music generated</span> : null}
       </div>
+      {result.message && !result.musicUrl ? <p className="mt-3 text-xs leading-5 text-[#f0cfcf]">{result.message}</p> : null}
       {result.previewUrl ? (
         <>
           <video
