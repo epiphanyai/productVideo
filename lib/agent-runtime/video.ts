@@ -4,6 +4,7 @@ import type { ProductPhoto, Shotlist, VideoJobResult } from "@/lib/workflow/type
 
 const draftModel = "fal-ai/wan-i2v";
 const endFrameDraftModel = "fal-ai/wan/v2.7/image-to-video";
+const finalModel = "fal-ai/seedance/v1/lite/image-to-video";
 const mergeModel = "fal-ai/ffmpeg-api/merge-videos";
 const musicModel = "fal-ai/minimax-music/v2";
 const composeModel = "fal-ai/ffmpeg-api/compose";
@@ -11,7 +12,8 @@ const trimModel = "fal-ai/workflow-utilities/trim-video";
 
 export async function createVideoFromShotlist(
   shotlist: Shotlist,
-  photos: ProductPhoto[]
+  photos: ProductPhoto[],
+  quality: "draft" | "final" = "draft"
 ): Promise<VideoJobResult> {
   const jobId = `video-${Date.now()}`;
 
@@ -52,7 +54,8 @@ export async function createVideoFromShotlist(
         referenceImageUrl,
         shotIndex: index,
         title: shot.title,
-        durationSeconds: shot.durationSeconds
+        durationSeconds: shot.durationSeconds,
+        quality
       });
       const previewUrl = findVideoUrl(result.data);
 
@@ -102,7 +105,8 @@ async function createShotVideo({
   prompt,
   referenceImageUrl,
   shotIndex,
-  title
+  title,
+  quality
 }: {
   durationSeconds: number;
   endImageUrl?: string;
@@ -110,7 +114,30 @@ async function createShotVideo({
   referenceImageUrl: string;
   shotIndex: number;
   title: string;
+  quality: "draft" | "final";
 }) {
+  // Final quality: use Seedance for higher fidelity clips
+  if (quality === "final") {
+    try {
+      return await fal.subscribe(finalModel, {
+        input: {
+          image_url: referenceImageUrl,
+          ...(endImageUrl ? { end_image_url: endImageUrl } : {}),
+          prompt,
+          resolution: "720p",
+          duration: String(clampVideoDuration(durationSeconds))
+        },
+        logs: true
+      });
+    } catch (error) {
+      console.warn(
+        `Seedance final render failed for shot ${shotIndex + 1} (${title}); falling back to draft model.`,
+        formatFalVideoError(error)
+      );
+    }
+  }
+
+  // End-frame draft using WAN 2.7
   if (endImageUrl) {
     try {
       return await fal.subscribe(endFrameDraftModel, {
@@ -131,6 +158,7 @@ async function createShotVideo({
     }
   }
 
+  // Draft: WAN I2V
   try {
     return await fal.subscribe(draftModel, {
       input: {
