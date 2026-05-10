@@ -157,9 +157,9 @@ export function ShotlistWorkspace({
         </div>
       ) : null}
 
-      <div className="border-t border-stone-300 p-5">
+      <div className="flex justify-end border-t border-stone-300 p-5">
         <button
-          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#2f6f63] px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-55 md:w-auto"
+          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#2f6f63] px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-55 md:w-56"
           disabled={isCreatingVideo || isGeneratingImages}
           onClick={onCreateVideo}
           type="button"
