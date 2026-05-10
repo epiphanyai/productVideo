@@ -494,6 +494,7 @@ export default function Home() {
     setActiveStage("video");
     setIsCreatingVideo(true);
     setVideoError(null);
+    setVideoResult(null);
 
     try {
       const response = await fetch("/api/video", {
@@ -585,7 +586,12 @@ export default function Home() {
             </div>
 
             <div className={activeStage === "video" ? "grid content-start gap-5" : "hidden"}>
-              <VideoPanel error={videoError} isCreating={isCreatingVideo} result={videoResult} />
+              <VideoPanel
+                error={videoError}
+                isCreating={isCreatingVideo}
+                result={videoResult}
+                targetDurationSeconds={shotlist?.targetDurationSeconds ?? 0}
+              />
             </div>
           </div>
         </div>
