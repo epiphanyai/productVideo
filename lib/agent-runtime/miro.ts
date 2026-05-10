@@ -36,6 +36,8 @@ const boardInterpreterAgent = new Agent({
   instructions: [
     "Interpret a Miro board as the source of truth for a product video shotlist.",
     "Use all board text, document content, item metadata, and image references provided.",
+    "When items are named or titled like shot_1_title, shot_1, and shot_1_notes, treat those items as one scene: title text is the scene title, the sticky is a short visual cue, and notes below it contain the full prompt, framing, motion, and assets.",
+    "Prefer the product video shotlist frame and its child or nearby items over unrelated board content when the board contains multiple frames.",
     "Preserve collaborator intent over the original brief when the board differs.",
     "Return only structured output matching the schema.",
     "Write image-to-video-ready prompts that describe the first frame, product framing, and action."
@@ -140,10 +142,7 @@ export async function routeShotlistToMiro(
       await server.callTool("layout_get_dsl", {});
     }
 
-    const layoutResult = await server.callTool("layout_create", {
-      dsl: createShotlistLayoutDsl(shotlist),
-      miro_url: boardUrl
-    });
+    const layoutResult = await createMiroLayoutWithFallback(server, shotlist, boardUrl);
     const layoutText = getMcpText(layoutResult);
     const itemUrls = findMiroItemUrls(layoutText);
 
@@ -361,6 +360,30 @@ async function readMiroBoardContext(boardUrl: string): Promise<MiroBoardContext>
   }
 }
 
+async function createMiroLayoutWithFallback(
+  server: NonNullable<ReturnType<typeof createMiroMcpServer>>,
+  shotlist: Shotlist,
+  boardUrl: string
+) {
+  try {
+    const result = await server.callTool("layout_create", {
+      dsl: createShotlistLayoutDsl(shotlist),
+      miro_url: boardUrl
+    });
+
+    assertMiroToolSuccess(result, "layout_create");
+    return result;
+  } catch {
+    const fallbackResult = await server.callTool("layout_create", {
+      dsl: createLegacyShotlistLayoutDsl(shotlist),
+      miro_url: boardUrl
+    });
+
+    assertMiroToolSuccess(fallbackResult, "layout_create fallback");
+    return fallbackResult;
+  }
+}
+
 async function interpretMiroBoardAsShotlist(brief: ProductBrief, boardContext: MiroBoardContext): Promise<Shotlist> {
   if (!process.env.OPENAI_API_KEY?.trim()) {
     return createMockShotlistFromBoard(brief, boardContext);
@@ -380,6 +403,8 @@ async function interpretMiroBoardAsShotlist(brief: ProductBrief, boardContext: M
         board: {
           url: boardContext.boardUrl,
           tools: boardContext.tools,
+          relationshipHint:
+            "Generated product-video boards group each shot with shot_N_title, shot_N sticky, shot_N_notes, and flow_N_to_N+1 items inside shotlist_frame. Keep each title, sticky cue, and note block together when normalizing shots.",
           text: truncate(boardContext.text, 20_000),
           imageUrls: boardContext.imageUrls,
           items: boardContext.items.slice(0, 100)
@@ -489,6 +514,88 @@ function getMiroOAuthRedirectUrl() {
 }
 
 function createShotlistLayoutDsl(shotlist: Shotlist) {
+  const columnWidth = 360;
+  const frameWidth = Math.max(1260, shotlist.shots.length * columnWidth + 240);
+  const frameHeight = 780;
+  const lines = [
+    `shotlist_frame FRAME x=0 y=0 w=${frameWidth} h=${frameHeight} fill=#F4F5F7 "${escapeDsl(
+      `${shotlist.productName} Shotlist`
+    )}"`,
+    `title TEXT parent=shotlist_frame x=${Math.round(frameWidth / 2)} y=70 w=${Math.min(
+      1000,
+      frameWidth - 160
+    )} font=open_sans size=28 align=center color=#1D2528 "${escapeDsl(shotlist.concept)}"`
+  ];
+
+  shotlist.shots.forEach((shot, index) => {
+    const shotNumber = index + 1;
+    const x = 190 + index * columnWidth;
+    const stickyColor = index % 2 === 0 ? "light_yellow" : "light_blue";
+    const stickyCue = createShotStickyCue(shot);
+    const notes = [
+      `Prompt: ${shot.prompt}`,
+      `Framing: ${shot.framing}`,
+      `Motion: ${shot.motion}`,
+      shot.assets.length ? `Assets: ${shot.assets.join(", ")}` : ""
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    lines.push(
+      `shot_${shotNumber}_title TEXT parent=shotlist_frame x=${x} y=225 w=280 font=open_sans size=18 align=center color=#1D2528 "${escapeDsl(
+        `${shotNumber}. ${shot.title} (${shot.durationSeconds}s)`
+      )}"`,
+      `shot_${shotNumber} STICKY parent=shotlist_frame x=${x} y=330 w=240 color=${stickyColor} shape=rectangle align=center valign=middle "${escapeDsl(
+        stickyCue
+      )}"`,
+      `shot_${shotNumber}_notes TEXT parent=shotlist_frame x=${x} y=550 w=300 font=open_sans size=13 align=left color=#425054 "${escapeDsl(
+        notes
+      )}"`
+    );
+
+    if (index < shotlist.shots.length - 1) {
+      lines.push(createThinFlowArrowDsl(shotNumber, x + 152, x + columnWidth - 160));
+    }
+  });
+
+  return lines.join("\n");
+}
+
+function createShotStickyCue(shot: Shotlist["shots"][number]) {
+  const cueParts = [
+    summarizeCue(shot.framing),
+    summarizeCue(shot.motion)
+  ].filter(Boolean);
+  const cue = cueParts.length ? cueParts.join("\n") : shot.title;
+
+  return truncate(cue, 72);
+}
+
+function summarizeCue(value: string) {
+  const normalized = value
+    .replace(/\b(the|a|an|with|and|that|this|product|camera|shot|frame|framing)\b/gi, " ")
+    .replace(/[.;:]+/g, ",")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return truncate(normalized || value.trim(), 34);
+}
+
+function createThinFlowArrowDsl(shotNumber: number, startX: number, endX: number) {
+  const lineWidth = Math.max(24, endX - startX - 18);
+  const y = 330;
+
+  return [
+    `flow_${shotNumber}_to_${shotNumber + 1}_line SHAPE parent=shotlist_frame x=${Math.round(
+      startX + lineWidth / 2
+    )} y=${y} w=${lineWidth} h=4 type=rectangle fill=#2F6F63 border_color=#2F6F63 ""`,
+    `flow_${shotNumber}_to_${shotNumber + 1}_head TEXT parent=shotlist_frame x=${Math.round(
+      startX + lineWidth + 14
+    )} y=${y - 1} w=24 font=open_sans size=24 align=center color=#2F6F63 ">"`
+  ].join("\n");
+}
+
+function createLegacyShotlistLayoutDsl(shotlist: Shotlist) {
   const frameWidth = Math.max(1200, shotlist.shots.length * 340 + 220);
   const frameHeight = 760;
   const lines = [
@@ -516,11 +623,9 @@ function createShotlistLayoutDsl(shotlist: Shotlist) {
       .filter(Boolean)
       .join("\n");
 
-    lines.push(
-      `shot_${index + 1} STICKY parent=shotlist_frame x=${x} y=310 w=260 color=${stickyColor} shape=rectangle align=left valign=top "${escapeDsl(
-        content
-      )}"`
-    );
+    lines.push(`shot_${index + 1} STICKY parent=shotlist_frame x=${x} y=310 w=260 color=${stickyColor} shape=rectangle align=left valign=top "${escapeDsl(
+      content
+    )}"`);
 
     if (index < shotlist.shots.length - 1) {
       lines.push(
