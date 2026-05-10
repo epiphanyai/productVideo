@@ -1,6 +1,15 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Clapperboard, Film, ImageIcon, Loader2, RefreshCw } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clapperboard,
+  Download,
+  Film,
+  ImageIcon,
+  Loader2,
+  RefreshCw
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { getVideoStyleLabel } from "@/lib/workflow/styles";
 import type { Shot, Shotlist } from "@/lib/workflow/types";
@@ -15,6 +24,7 @@ type ShotlistWorkspaceProps = {
   error: string | null;
   onCreateVideo: () => void;
   onRegenerateShotImage: (shotId: string, imagePrompt: string) => void;
+  onUpdateShotVideoPrompt: (shotId: string, videoPrompt: string) => void;
 };
 
 export function ShotlistWorkspace({
@@ -24,12 +34,15 @@ export function ShotlistWorkspace({
   isCreatingVideo,
   error,
   onCreateVideo,
-  onRegenerateShotImage
+  onRegenerateShotImage,
+  onUpdateShotVideoPrompt
 }: ShotlistWorkspaceProps) {
   const [selectedShotIndex, setSelectedShotIndex] = useState(0);
   const [thumbnailPageIndex, setThumbnailPageIndex] = useState(0);
+  const [promptTab, setPromptTab] = useState<"image" | "video">("image");
   const selectedShot = shotlist?.shots[selectedShotIndex] ?? null;
-  const [promptDraft, setPromptDraft] = useState("");
+  const [imagePromptDraft, setImagePromptDraft] = useState("");
+  const [videoPromptDraft, setVideoPromptDraft] = useState("");
 
   useEffect(() => {
     setSelectedShotIndex(0);
@@ -37,7 +50,8 @@ export function ShotlistWorkspace({
   }, [shotlist?.id]);
 
   useEffect(() => {
-    setPromptDraft(selectedShot?.imagePrompt || selectedShot?.prompt || "");
+    setImagePromptDraft(selectedShot?.imagePrompt || selectedShot?.prompt || "");
+    setVideoPromptDraft(selectedShot?.videoPrompt || selectedShot?.prompt || "");
   }, [selectedShot?.id, selectedShot?.imagePrompt, selectedShot?.prompt]);
 
   const thumbnailPageCount = Math.max(1, Math.ceil((shotlist?.shots.length ?? 0) / thumbnailsPerPage));
@@ -80,7 +94,11 @@ export function ShotlistWorkspace({
   }
 
   const imageIsRunning = selectedShot.imageStatus === "running";
-  const promptChanged = promptDraft.trim() && promptDraft.trim() !== (selectedShot.imagePrompt || selectedShot.prompt);
+  const imagePromptChanged =
+    imagePromptDraft.trim() && imagePromptDraft.trim() !== (selectedShot.imagePrompt || selectedShot.prompt);
+  const videoPromptChanged =
+    videoPromptDraft.trim() && videoPromptDraft.trim() !== (selectedShot.videoPrompt || selectedShot.prompt);
+  const needsReferenceImage = Boolean(selectedShot.startImageUrl || selectedShot.sourceImageUrls?.length);
 
   return (
     <section className="rounded-lg border border-stone-300 bg-white shadow-[0_18px_60px_rgba(29,37,40,0.12)]">
@@ -143,31 +161,92 @@ export function ShotlistWorkspace({
 
           <p className="text-sm leading-6 text-[#425054]">{selectedShot.prompt}</p>
 
-          <label className="grid gap-2">
-            <span className="text-sm font-bold">Image prompt</span>
-            <textarea
-              className="min-h-36 resize-y rounded-lg border border-stone-300 bg-[#f8faf8] px-3 py-3 text-sm leading-6 outline-none focus:border-[#2f6f63]"
-              onChange={(event) => setPromptDraft(event.target.value)}
-              value={promptDraft}
-            />
-          </label>
-
-          {selectedShot.imageError ? (
-            <div className="rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
-              {selectedShot.imageError}
+          <div className="overflow-hidden rounded-lg border border-stone-300">
+            <div className="grid grid-cols-2 bg-[#eef4ef] p-1">
+              <button
+                className={`min-h-10 rounded-md text-sm font-bold ${
+                  promptTab === "image" ? "bg-white text-[#1d2528]" : "text-[#647174]"
+                }`}
+                onClick={() => setPromptTab("image")}
+                type="button"
+              >
+                Image Prompt
+              </button>
+              <button
+                className={`min-h-10 rounded-md text-sm font-bold ${
+                  promptTab === "video" ? "bg-white text-[#1d2528]" : "text-[#647174]"
+                }`}
+                onClick={() => setPromptTab("video")}
+                type="button"
+              >
+                Video Instructions
+              </button>
             </div>
-          ) : null}
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <button
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white px-4 font-bold text-[#1d2528] disabled:cursor-not-allowed disabled:opacity-55 sm:w-56"
-              disabled={imageIsRunning || !promptDraft.trim()}
-              onClick={() => onRegenerateShotImage(selectedShot.id, promptDraft)}
-              type="button"
-            >
-              {imageIsRunning ? <Loader2 className="animate-spin" size={18} /> : <RefreshCw size={18} />}
-              {promptChanged ? "Regenerate Image" : "Regenerate"}
-            </button>
+            <div className="grid gap-3 p-3">
+              {promptTab === "image" ? (
+                <>
+                  <textarea
+                    className="min-h-36 resize-y rounded-lg border border-stone-300 bg-[#f8faf8] px-3 py-3 text-sm leading-6 outline-none focus:border-[#2f6f63]"
+                    onChange={(event) => setImagePromptDraft(event.target.value)}
+                    value={imagePromptDraft}
+                  />
+                  {selectedShot.imageError ? (
+                    <div className="rounded-lg border border-[#c96b6b] bg-[#fff6f3] p-3 text-sm leading-6 text-[#8a2e2e]">
+                      {selectedShot.imageError}
+                    </div>
+                  ) : null}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    <a
+                      className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white px-4 font-bold text-[#1d2528] sm:w-44 ${
+                        selectedShot.startImageUrl ? "" : "pointer-events-none opacity-55"
+                      }`}
+                      download={`${selectedShot.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-start.png`}
+                      href={selectedShot.startImageUrl || "#"}
+                    >
+                      <Download size={18} />
+                      Download
+                    </a>
+                    <button
+                      className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white px-4 font-bold text-[#1d2528] disabled:cursor-not-allowed disabled:opacity-55 sm:w-56"
+                      disabled={imageIsRunning || !imagePromptDraft.trim()}
+                      onClick={() => onRegenerateShotImage(selectedShot.id, imagePromptDraft)}
+                      type="button"
+                    >
+                      {imageIsRunning ? <Loader2 className="animate-spin" size={18} /> : <RefreshCw size={18} />}
+                      {imagePromptChanged ? "Regenerate Image" : "Regenerate"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <textarea
+                    className="min-h-36 resize-y rounded-lg border border-stone-300 bg-[#f8faf8] px-3 py-3 text-sm leading-6 outline-none focus:border-[#2f6f63]"
+                    onBlur={() => {
+                      if (videoPromptDraft.trim()) {
+                        onUpdateShotVideoPrompt(selectedShot.id, videoPromptDraft);
+                      }
+                    }}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setVideoPromptDraft(value);
+                      onUpdateShotVideoPrompt(selectedShot.id, value);
+                    }}
+                    value={videoPromptDraft}
+                  />
+                  <label className="flex items-start gap-2 rounded-lg bg-[#f8faf8] p-3 text-sm leading-6 text-[#647174]">
+                    <input checked={needsReferenceImage} className="mt-1" disabled readOnly type="checkbox" />
+                    <span>
+                      Reference image will be used automatically when a generated starting image or product photo is
+                      available.
+                    </span>
+                  </label>
+                  {videoPromptChanged ? (
+                    <div className="text-xs font-bold text-[#647174]">Video instructions saved for this shot.</div>
+                  ) : null}
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

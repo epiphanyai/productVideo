@@ -355,6 +355,24 @@ export default function Home() {
     }
   }
 
+  function updateShotVideoPrompt(shotId: string, videoPrompt: string) {
+    setShotlist((current) =>
+      current
+        ? {
+            ...current,
+            shots: current.shots.map((shot) =>
+              shot.id === shotId
+                ? {
+                    ...shot,
+                    videoPrompt
+                  }
+                : shot
+            )
+          }
+        : current
+    );
+  }
+
   async function createVideo() {
     if (!shotlist) {
       return;
@@ -447,6 +465,7 @@ export default function Home() {
                 isLoading={isCreatingShotlist}
                 onCreateVideo={createVideo}
                 onRegenerateShotImage={regenerateShotImage}
+                onUpdateShotVideoPrompt={updateShotVideoPrompt}
                 shotlist={shotlist}
               />
             </div>

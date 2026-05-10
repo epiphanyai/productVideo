@@ -137,7 +137,7 @@ function buildShotPrompt(shotlist: Shotlist, shot: Shotlist["shots"][number], in
     `Create shot ${index + 1} of ${shotlist.shots.length} for a product video about ${shotlist.productName}.`,
     `Concept: ${shotlist.concept}`,
     `Shot title: ${shot.title}`,
-    `Shot prompt: ${shot.prompt}`,
+    `Shot prompt: ${shot.videoPrompt?.trim() || shot.prompt}`,
     `Motion: ${shot.motion}`,
     `Framing: ${shot.framing}`,
     "Generate only this shot as a clean, usable product-video clip."

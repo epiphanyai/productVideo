@@ -29,6 +29,7 @@ export type Shot = {
   startImageUrl?: string;
   sourceImageUrls?: string[];
   imagePrompt?: string;
+  videoPrompt?: string;
   imageStatus?: WorkflowRunStatus;
   imageError?: string;
 };
