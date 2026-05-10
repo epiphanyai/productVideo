@@ -99,30 +99,11 @@ export function MiroPanel({
                                 </div>
                             ) : null}
 
-                            {/* Read board CTA */}
-                            <div style={{ background: "var(--ink)", color: "var(--paper)", borderRadius: 10, padding: 20 }}>
-                                <div className="mono" style={{ color: "rgba(243,235,220,0.6)", marginBottom: 10 }}>WHEN YOU&apos;RE READY</div>
-                                <div style={{ fontFamily: "var(--display)", fontWeight: 500, fontSize: 20, lineHeight: 1.2, marginBottom: 14 }}>
-                                    Finalize board{" "}
-                                    <span style={{ fontFamily: "var(--serif-italic)", fontStyle: "italic", color: "var(--accent)" }}>into a shotlist.</span>
-                                </div>
-                                <button
-                                    className="btn btn-accent"
-                                    disabled={isCreatingShotlist}
-                                    onClick={onCreateShotlist}
-                                    style={{ width: "100%", justifyContent: "center" }}
-                                    type="button"
-                                >
-                                    {isCreatingShotlist ? (
-                                        <>
-                                            <span style={{ width: 14, height: 14, border: "2px solid rgba(243,235,220,0.3)", borderTopColor: "var(--paper)", borderRadius: 99, animation: "spin 0.8s linear infinite", display: "inline-block" }} />
-                                            Reading board…
-                                        </>
-                                    ) : (
-                                        "Generate shotlist →"
-                                    )}
-                                </button>
-                            </div>
+                            <FinalizeBoardCta
+                                isCreatingShotlist={isCreatingShotlist}
+                                isReady={seeded}
+                                onCreateShotlist={onCreateShotlist}
+                            />
 
                             {/* Connection controls */}
                             <div style={{ padding: "14px 16px", background: "var(--paper-2)", borderRadius: 10, border: "1px solid var(--hairline-soft)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -270,37 +251,55 @@ export function MiroPanel({
                                 </ol>
                             </div>
 
-                            <div style={{ background: "var(--ink)", color: "var(--paper)", borderRadius: 10, padding: 20 }}>
-                                <div className="mono" style={{ color: "rgba(243,235,220,0.6)", marginBottom: 10 }}>WHEN YOU&apos;RE READY</div>
-                                <div style={{ fontFamily: "var(--display)", fontWeight: 500, fontSize: 22, lineHeight: 1.15, marginBottom: 14 }}>
-                                    Read the board{" "}
-                                    <span style={{ fontFamily: "var(--serif-italic)", fontStyle: "italic", color: "var(--accent)" }}>back to a shotlist.</span>
-                                </div>
-                                <button
-                                    className="btn btn-accent"
-                                    disabled={!seeded || isCreatingShotlist}
-                                    onClick={onCreateShotlist}
-                                    style={{ width: "100%", justifyContent: "center" }}
-                                    type="button"
-                                >
-                                    {isCreatingShotlist ? (
-                                        <>
-                                            <span style={{ width: 14, height: 14, border: "2px solid rgba(243,235,220,0.3)", borderTopColor: "var(--paper)", borderRadius: 99, animation: "spin 0.8s linear infinite", display: "inline-block" }} />
-                                            Reading board…
-                                        </>
-                                    ) : (
-                                        "Read board → shotlist →"
-                                    )}
-                                </button>
-                                <div className="mono" style={{ color: "rgba(243,235,220,0.45)", marginTop: 10, fontSize: 10 }}>
-                                    {seeded ? "BOARD READY" : "SEED A BOARD FIRST"}
-                                </div>
-                            </div>
+                            <FinalizeBoardCta
+                                isCreatingShotlist={isCreatingShotlist}
+                                isReady={seeded}
+                                onCreateShotlist={onCreateShotlist}
+                            />
                         </div>
                     </div>
                 )}
             </div>
         </section>
+    );
+}
+
+function FinalizeBoardCta({
+    isCreatingShotlist,
+    isReady,
+    onCreateShotlist,
+}: {
+    isCreatingShotlist: boolean;
+    isReady: boolean;
+    onCreateShotlist: () => void;
+}) {
+    return (
+        <div style={{ background: "var(--ink)", color: "var(--paper)", borderRadius: 10, padding: 20 }}>
+            <div className="mono" style={{ color: "rgba(243,235,220,0.6)", marginBottom: 10 }}>WHEN YOU&apos;RE READY</div>
+            <div style={{ fontFamily: "var(--display)", fontWeight: 500, fontSize: 20, lineHeight: 1.2, marginBottom: 14 }}>
+                Finalize board{" "}
+                <span style={{ fontFamily: "var(--serif-italic)", fontStyle: "italic", color: "var(--accent)" }}>into a shotlist.</span>
+            </div>
+            <button
+                className="btn btn-accent"
+                disabled={!isReady || isCreatingShotlist}
+                onClick={onCreateShotlist}
+                style={{ width: "100%", justifyContent: "center" }}
+                type="button"
+            >
+                {isCreatingShotlist ? (
+                    <>
+                        <span style={{ width: 14, height: 14, border: "2px solid rgba(243,235,220,0.3)", borderTopColor: "var(--paper)", borderRadius: 99, animation: "spin 0.8s linear infinite", display: "inline-block" }} />
+                        Finalizing board...
+                    </>
+                ) : (
+                    "Finalize board ->"
+                )}
+            </button>
+            <div className="mono" style={{ color: "rgba(243,235,220,0.45)", marginTop: 10, fontSize: 10 }}>
+                {isReady ? "BOARD READY" : "SEED A BOARD FIRST"}
+            </div>
+        </div>
     );
 }
 

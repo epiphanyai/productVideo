@@ -187,7 +187,15 @@ export function VideoPanel({ result, isCreating, isFinalRendering, error, shotli
                   download
                   href={result.previewUrl}
                   rel="noreferrer"
-                  style={{ width: "100%", justifyContent: "center", marginBottom: 8, display: "inline-flex" }}
+                  style={{
+                    width: "100%",
+                    justifyContent: "center",
+                    marginBottom: 8,
+                    display: "inline-flex",
+                    background: "var(--ink)",
+                    borderColor: "var(--ink)",
+                    color: "var(--paper)"
+                  }}
                   target="_blank"
                 >
                   ⬇ Download video
