@@ -73,6 +73,3 @@ Open [http://localhost:3000](http://localhost:3000).
 
 MIT — see [LICENSE](LICENSE).
 
----
-
-Built by [Jack Chen](https://github.com/jackchen). Thanks to Rohan for collaborating at the hackathon.
