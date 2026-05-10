@@ -1,6 +1,7 @@
 import { Agent, run } from "@openai/agents";
 import { z } from "zod";
 import { getVideoStyleLabel } from "@/lib/workflow/styles";
+import { planVideoFromBrief } from "@/lib/workflow/video-plan";
 import type { ProductBrief, Shot, Shotlist } from "@/lib/workflow/types";
 
 const agentShotSchema = z.object({
@@ -15,7 +16,7 @@ const agentShotSchema = z.object({
 const shotlistDraftSchema = z.object({
   productName: z.string(),
   concept: z.string(),
-  shots: z.array(agentShotSchema).min(4).max(8)
+  shots: z.array(agentShotSchema).min(3).max(12)
 });
 
 const styleDirection = {
@@ -47,6 +48,8 @@ const shotlistAgent = new Agent({
     "Create practical product video shotlists for short-form product videos.",
     "Return only structured output that matches the requested schema.",
     "Write vivid but executable prompts for video generation.",
+    "When a videoPlan is provided, return exactly videoPlan.targetShotCount shots.",
+    "Make each shot duration fit the requested total video duration.",
     "Use uploaded photo names as assets only when they are relevant to a shot.",
     "Keep the plan concise enough for collaborators to review in Miro."
   ].join(" "),
@@ -54,8 +57,10 @@ const shotlistAgent = new Agent({
 });
 
 export async function createShotlist(brief: ProductBrief): Promise<Shotlist> {
+  const videoPlan = planVideoFromBrief(brief);
+
   if (!process.env.OPENAI_API_KEY?.trim()) {
-    return createMockShotlist(brief);
+    return createMockShotlist(brief, videoPlan);
   }
 
   const result = await run(
@@ -65,6 +70,12 @@ export async function createShotlist(brief: ProductBrief): Promise<Shotlist> {
         productName: brief.productName,
         description: brief.description,
         audience: brief.audience,
+        videoPlan: {
+          visualFeatureCount: videoPlan.visualFeatureCount,
+          targetDurationSeconds: videoPlan.targetDurationSeconds,
+          targetShotCount: videoPlan.targetShotCount,
+          rule: "Visual feature count is based on uploaded product images. Return exactly targetShotCount shots."
+        },
         style: {
           id: brief.style,
           label: getVideoStyleLabel(brief.style),
@@ -97,17 +108,16 @@ function summarizePhotoSource(url: string) {
   return url;
 }
 
-function createMockShotlist(brief: ProductBrief): Shotlist {
+function createMockShotlist(brief: ProductBrief, videoPlan = planVideoFromBrief(brief)): Shotlist {
   const direction = styleDirection[brief.style];
   const productName = brief.productName.trim() || "Product";
   const audience = brief.audience.trim() || "target customers";
   const photoNames = brief.photos.map((photo) => photo.name);
+  const shotDuration = Math.round(videoPlan.targetDurationSeconds / videoPlan.targetShotCount);
 
-  const shots: Shot[] = [
+  const shotTemplates: Omit<Shot, "id" | "durationSeconds">[] = [
     {
-      id: "shot-01",
       title: "Hero Reveal",
-      durationSeconds: 4,
       framing: direction.framing,
       motion: direction.motion,
       prompt: `Open on ${productName} with a confident reveal. Establish the ${getVideoStyleLabel(
@@ -116,18 +126,14 @@ function createMockShotlist(brief: ProductBrief): Shotlist {
       assets: photoNames.slice(0, 1)
     },
     {
-      id: "shot-02",
       title: "Problem Context",
-      durationSeconds: 5,
       framing: "Medium contextual scene with product visible",
       motion: "Smooth cut from environment to product interaction",
       prompt: `Show the moment the intended audience recognizes the need this product solves. Keep ${audience} in mind while keeping the product present without making the shot feel staged.`,
       assets: photoNames.slice(0, 2)
     },
     {
-      id: "shot-03",
       title: "Feature Proof",
-      durationSeconds: 6,
       framing: "Close detail inserts with room for labels",
       motion: "Push in, hold, then cut to a second angle",
       prompt: `Turn the strongest product detail from the brief into a visual proof point: ${brief.description.slice(
@@ -137,30 +143,37 @@ function createMockShotlist(brief: ProductBrief): Shotlist {
       assets: photoNames
     },
     {
-      id: "shot-04",
       title: "Use Moment",
-      durationSeconds: 6,
       framing: "Hands-on or in-context usage frame",
       motion: "One continuous action beat with a clean end pose",
       prompt: `Show ${productName} being used in a way that feels obvious, useful, and specific to ${audience}.`,
       assets: photoNames
     },
     {
-      id: "shot-05",
       title: "Final Payoff",
-      durationSeconds: 4,
       framing: "Centered packshot with negative space",
       motion: "Slow settle into final composition",
       prompt: `End on ${productName} with a strong final frame suitable for a CTA or logo lockup.`,
       assets: photoNames.slice(0, 1)
     }
   ];
+  const shots = Array.from({ length: videoPlan.targetShotCount }, (_, index) => {
+    const template = shotTemplates[index % shotTemplates.length];
+
+    return {
+      ...template,
+      id: `shot-${String(index + 1).padStart(2, "0")}`,
+      durationSeconds: shotDuration
+    };
+  });
 
   return {
     id: `shotlist-${Date.now()}`,
     productName,
     style: brief.style,
     concept: direction.concept,
+    targetDurationSeconds: videoPlan.targetDurationSeconds,
+    visualFeatureCount: videoPlan.visualFeatureCount,
     shots,
     createdAt: new Date().toISOString()
   };
@@ -171,21 +184,51 @@ function normalizeShotlistDraft(
   draft: z.infer<typeof shotlistDraftSchema>
 ): Shotlist {
   const productName = draft.productName.trim() || brief.productName.trim() || "Product";
+  const videoPlan = planVideoFromBrief(brief);
+  const shotDuration = Math.round(videoPlan.targetDurationSeconds / videoPlan.targetShotCount);
+  const normalizedShots = draft.shots
+    .slice(0, videoPlan.targetShotCount)
+    .map((shot, index) => normalizeShot(shot, index, shotDuration));
+
+  while (normalizedShots.length < videoPlan.targetShotCount) {
+    normalizedShots.push(
+      normalizeShot(
+        {
+          title: `Supporting Detail ${normalizedShots.length + 1}`,
+          durationSeconds: shotDuration,
+          framing: styleDirection[brief.style].framing,
+          motion: styleDirection[brief.style].motion,
+          prompt: `Show another clear visual feature of ${productName} in the ${getVideoStyleLabel(
+            brief.style
+          ).toLowerCase()} style.`,
+          assets: brief.photos.map((photo) => photo.name)
+        },
+        normalizedShots.length,
+        shotDuration
+      )
+    );
+  }
 
   return {
     id: `shotlist-${Date.now()}`,
     productName,
     style: brief.style,
     concept: draft.concept.trim(),
-    shots: draft.shots.map((shot, index) => ({
-      id: `shot-${String(index + 1).padStart(2, "0")}`,
-      title: shot.title.trim(),
-      durationSeconds: shot.durationSeconds,
-      framing: shot.framing.trim(),
-      motion: shot.motion.trim(),
-      prompt: shot.prompt.trim(),
-      assets: shot.assets.filter((asset) => asset.trim()).map((asset) => asset.trim())
-    })),
+    targetDurationSeconds: videoPlan.targetDurationSeconds,
+    visualFeatureCount: videoPlan.visualFeatureCount,
+    shots: normalizedShots,
     createdAt: new Date().toISOString()
+  };
+}
+
+function normalizeShot(shot: z.infer<typeof agentShotSchema>, index: number, durationSeconds: number): Shot {
+  return {
+    id: `shot-${String(index + 1).padStart(2, "0")}`,
+    title: shot.title.trim(),
+    durationSeconds,
+    framing: shot.framing.trim(),
+    motion: shot.motion.trim(),
+    prompt: shot.prompt.trim(),
+    assets: shot.assets.filter((asset) => asset.trim()).map((asset) => asset.trim())
   };
 }
